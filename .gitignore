@@ -1,0 +1,18 @@
+*
+!*/
+
+!*.gs
+!*.js
+!*.html
+!*.json
+
+!.clasp.json
+!.github/
+!.github/**/*
+!.gitignore
+
+# Ignore specific directories and files that shouldn't be uploaded
+.claude/
+finfin_client/
+test_data/
+ตารางรับชำระ/

@@ -1,0 +1,38 @@
+name: Clasp Push
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Create ~/.clasprc.json
+        run: |
+          if [ -z "$CLASP_TOKEN" ]; then
+            echo "Error: CLASP_TOKEN secret is empty or not set."
+            exit 1
+          fi
+          echo "$CLASP_TOKEN" > ~/.clasprc.json
+        env:
+          CLASP_TOKEN: ${{ secrets.CLASP_TOKEN }}
+
+      - name: Push to Google Apps Script
+        run: clasp push --force
