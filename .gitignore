@@ -21,6 +21,7 @@
 !generate_manual.py
 !generate_flowchart.py
 !MTECH_API_Flow.png
+!MTECH_API_Flow.pdf
 !manual_screenshots/
 !manual_screenshots/**
 !finfin_client/
