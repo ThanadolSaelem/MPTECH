@@ -90,50 +90,79 @@ def legend_panel(ax):
         boxstyle='round,pad=0.05,rounding_size=0.2',
         facecolor='#F5F5F5', edgecolor='#CCCCCC', linewidth=0.8, zorder=1)
     ax.add_patch(p)
-    ax.text(5, 9.4, 'สัญลักษณ์และปริมาณเอกสาร', ha='center', va='center',
-            fontsize=10.5, fontweight='bold', color='#1F1F1F')
+
+    # ── ส่วนที่ 1: สัญลักษณ์ ──────────────────────────────────────────────────
+    ax.text(5, 9.55, 'สัญลักษณ์', ha='center', va='center',
+            fontsize=10, fontweight='bold', color='#1F1F1F')
 
     items = [
-        (C_RED,    'diamond', 'ทางแยกที่ต้องใช้การตัดสินใจ'),
-        (C_ORANGE, 'rect',    'กระบวนการทำงาน (GAS)'),
-        (C_PINK,   'rect',    'เส้น API (HTTP POST → PEAK)'),
-        (C_BLUE,   'rect',    'ระบบต้นทาง / ข้อมูล Input'),
-        (C_GREEN,  'rect',    'เอกสารที่สร้างใน PEAK'),
-        ('#FFFDE7', 'rect_y', 'Field ที่ส่งไปใน API Request'),
+        (C_RED,     'diamond', 'ทางแยกที่ต้องใช้การตัดสินใจ'),
+        (C_ORANGE,  'rect',    'กระบวนการทำงาน'),
+        (C_PINK,    'rect',    'เส้น API (HTTP POST → PEAK)'),
+        (C_BLUE,    'rect',    'ระบบต้นทาง / ข้อมูล Input'),
+        (C_GREEN,   'rect',    'เอกสารที่สร้างใน PEAK'),
+        ('#FFFDE7', 'rect_y',  'Field ที่ส่งไปใน API Request'),
     ]
     for i, (color, shape, label) in enumerate(items):
-        yp = 8.5 - i * 1.05
+        yp = 9.0 - i * 0.82
         if shape == 'diamond':
-            pts = np.array([[1.4, yp+0.28], [1.9, yp], [1.4, yp-0.28], [0.9, yp]])
+            pts = np.array([[1.35, yp+0.25], [1.85, yp], [1.35, yp-0.25], [0.85, yp]])
             ax.add_patch(Polygon(pts, closed=True, facecolor=color,
-                                 edgecolor=C_GRAY, linewidth=0.8))
+                                 edgecolor=C_GRAY, linewidth=0.7, zorder=3))
         else:
-            fc = color
-            r = FancyBboxPatch((0.8, yp-0.22), 1.4, 0.44,
-                boxstyle='round,pad=0.01,rounding_size=0.07',
-                facecolor=fc, edgecolor=C_GRAY, linewidth=0.8)
+            r = FancyBboxPatch((0.75, yp-0.20), 1.4, 0.40,
+                boxstyle='round,pad=0.01,rounding_size=0.06',
+                facecolor=color, edgecolor=C_GRAY, linewidth=0.7, zorder=3)
             ax.add_patch(r)
-        ax.text(2.4, yp, label, va='center', fontsize=9, color='#222222')
+        ax.text(2.4, yp, label, va='center', fontsize=8.5, color='#222222')
 
-    ax.text(0.5, 2.5, 'ปริมาณเอกสารโดยประมาณ (ต่อเดือน)', fontsize=9.5,
-            fontweight='bold', color='#1F1F1F')
+    # ── เส้นแบ่ง ──────────────────────────────────────────────────────────────
+    sep_y = 9.0 - 5 * 0.82 - 0.45   # ≈ 3.65
+    ax.axhline(sep_y, xmin=0.04, xmax=0.96, color='#BBBBBB', lw=1.0)
+
+    # ── ส่วนที่ 2: ตารางปริมาณเอกสาร ──────────────────────────────────────────
+    vol_title_y = sep_y - 0.40
+    ax.text(5, vol_title_y, 'ปริมาณเอกสารโดยประมาณ (ต่อเดือน)',
+            ha='center', va='center', fontsize=9.5, fontweight='bold', color='#1F1F1F')
+
+    # หัวตาราง
+    hdr_y = vol_title_y - 0.52
+    ax.add_patch(FancyBboxPatch((0.25, hdr_y-0.22), 9.5, 0.42,
+        boxstyle='square,pad=0.01',
+        facecolor='#1F4E79', edgecolor='#1F4E79', linewidth=0, zorder=2))
+    ax.text(0.5,  hdr_y, 'งาน / เอกสาร',       va='center', fontsize=8.5,
+            color='white', fontweight='bold')
+    ax.text(9.6,  hdr_y, 'รายการ/เดือน',        va='center', fontsize=8.5,
+            color='white', fontweight='bold', ha='right')
+
     vol = [
-        ('Part 1  ใบกำกับภาษี + ใบเสร็จ', '100 – 200'),
-        ('Part 1  ค่าบริการ',              ' 20 –  50'),
-        ('Part 2  ใบแจ้งหนี้ (สัญญาใหม่)', ' 30 –  80'),
-        ('Part 3  ใบเสร็จค่าปรับ',          ' 20 –  50'),
-        ('Part 4  ใบลดหนี้ (คืนเครื่อง)',   '  5 –  15'),
+        ('Part 1   ใบกำกับภาษี + ใบเสร็จ',   '800 – 1,200'),
+        ('Part 1   ค่าบริการ',                 '~100'),
+        ('Part 2   ใบแจ้งหนี้ (สัญญาใหม่)',    '100 – 200'),
+        ('Part 3   ใบเสร็จค่าปรับ',             '~100'),
+        ('Part 4   ใบลดหนี้ (คืนเครื่อง)',     '~50'),
+        ('Poll Queue  (GET — ไม่นับโควตา)',     '500 – 800'),
     ]
+    row_h = 0.44
     for i, (lbl, val) in enumerate(vol):
-        yp = 2.0 - i * 0.40
-        ax.text(0.8, yp, f'•  {lbl}', fontsize=8.5, color='#333333', va='center')
-        ax.text(9.5, yp, f'{val} รายการ', fontsize=8.5, color='#1F4E79',
-                fontweight='bold', ha='right', va='center')
-    ax.axhline(0.42, xmin=0.05, xmax=0.95, color='#CCCCCC', lw=0.8)
-    ax.text(0.8, 0.25, '• รวมทั้งหมด', fontsize=9, color='#333333',
-            fontweight='bold', va='center')
-    ax.text(9.5, 0.25, '175 – 395 รายการ/เดือน', fontsize=9,
-            color='#C00000', fontweight='bold', ha='right', va='center')
+        yp = hdr_y - 0.22 - (i + 0.5) * row_h
+        bg = '#EEF4FB' if i % 2 == 0 else '#FFFFFF'
+        ax.add_patch(FancyBboxPatch((0.25, yp-row_h/2), 9.5, row_h,
+            boxstyle='square,pad=0.005',
+            facecolor=bg, edgecolor='#DDDDDD', linewidth=0.5, zorder=2))
+        ax.text(0.5,  yp, lbl, va='center', fontsize=8.0, color='#333333')
+        ax.text(9.6,  yp, val, va='center', fontsize=8.0, color='#1F4E79',
+                fontweight='bold', ha='right')
+
+    # แถวรวม
+    total_y = hdr_y - 0.22 - (len(vol) + 0.5) * row_h
+    ax.add_patch(FancyBboxPatch((0.25, total_y-row_h/2), 9.5, row_h,
+        boxstyle='square,pad=0.005',
+        facecolor='#FCE4D6', edgecolor='#C00000', linewidth=0.8, zorder=2))
+    ax.text(0.5,  total_y, 'รวมทั้งหมด', va='center', fontsize=8.5,
+            color='#C00000', fontweight='bold')
+    ax.text(9.6,  total_y, '1,650 – 2,450', va='center', fontsize=8.5,
+            color='#C00000', fontweight='bold', ha='right')
 
 
 # ─── Panel Drawing Functions ──────────────────────────────────────────────────
@@ -146,9 +175,9 @@ def panel_part1(ax):
 
     # ── Legend mini ──
     for i, (c, lbl) in enumerate([
-        (C_RED,    'ทางแยก'),
+        (C_RED,    'ทางแยกตัดสินใจ'),
         (C_ORANGE, 'กระบวนการ'),
-        (C_PINK,   'เส้น API'),
+        (C_PINK,   'HTTP POST API'),
     ]):
         if c == C_RED:
             pts = np.array([[0.45+i*1.9, 9.1+0.18],[0.7+i*1.9,9.1],[0.45+i*1.9,9.1-0.18],[0.2+i*1.9,9.1]])
@@ -161,7 +190,7 @@ def panel_part1(ax):
         ax.text(0.85+i*1.9, 9.1, lbl, va='center', fontsize=7, color='#333333')
 
     # ── Source ──
-    rbox(ax, 5.0, 8.4, 4.0, 0.55, 'GAS (Google Apps Script)', C_BLUE, fontsize=8.5)
+    rbox(ax, 5.0, 8.4, 4.0, 0.55, 'Google Apps Script', C_BLUE, fontsize=8.5)
     arr(ax, 5.0, 8.12, 5.0, 7.75)
 
     rbox(ax, 5.0, 7.5, 4.0, 0.50, 'อ่านข้อมูล  Receipt.MM.YYYY', C_ORANGE, fontsize=8.5)
@@ -243,7 +272,7 @@ def panel_svc(ax):
     ax.set_xlim(0, 10); ax.set_ylim(0, 10); ax.axis('off')
     section_title(ax, 0.3, 9.6, 'Part 1  ค่าบริการเพิ่มเติม')
 
-    rbox(ax, 5.0, 8.6, 5.5, 0.55, 'GAS (Google Apps Script)', C_BLUE, fontsize=8.5)
+    rbox(ax, 5.0, 8.6, 5.5, 0.55, 'Google Apps Script', C_BLUE, fontsize=8.5)
     arr(ax, 5.0, 8.32, 5.0, 7.90)
 
     rbox(ax, 5.0, 7.65, 5.5, 0.50, 'อ่านข้อมูล  Sum.MM.YYYY', C_ORANGE, fontsize=8.5)
@@ -285,7 +314,7 @@ def panel_inv(ax):
     ax.set_xlim(0, 10); ax.set_ylim(0, 10); ax.axis('off')
     section_title(ax, 0.3, 9.6, 'Part 2  ใบแจ้งหนี้ (สัญญาใหม่)')
 
-    rbox(ax, 5.0, 8.6, 5.5, 0.55, 'GAS (Google Apps Script)', C_BLUE, fontsize=8.5)
+    rbox(ax, 5.0, 8.6, 5.5, 0.55, 'Google Apps Script', C_BLUE, fontsize=8.5)
     arr(ax, 5.0, 8.32, 5.0, 7.90)
 
     rbox(ax, 5.0, 7.65, 5.5, 0.50, 'อ่านข้อมูล  Sum.MM.YYYY', C_ORANGE, fontsize=8.5)
@@ -325,7 +354,7 @@ def panel_fee(ax):
     ax.set_xlim(0, 10); ax.set_ylim(0, 10); ax.axis('off')
     section_title(ax, 0.3, 9.6, 'Part 3  ใบเสร็จค่าปรับ')
 
-    rbox(ax, 5.0, 8.6, 5.5, 0.55, 'GAS (Google Apps Script)', C_BLUE, fontsize=8.5)
+    rbox(ax, 5.0, 8.6, 5.5, 0.55, 'Google Apps Script', C_BLUE, fontsize=8.5)
     arr(ax, 5.0, 8.32, 5.0, 7.90)
 
     rbox(ax, 5.0, 7.65, 5.5, 0.50,
@@ -370,7 +399,7 @@ def panel_cn(ax):
     ax.set_xlim(0, 10); ax.set_ylim(0, 10); ax.axis('off')
     section_title(ax, 0.3, 9.6, 'Part 4  ใบลดหนี้ (คืนเครื่อง)')
 
-    rbox(ax, 5.0, 8.6, 5.5, 0.55, 'GAS (Google Apps Script)', C_BLUE, fontsize=8.5)
+    rbox(ax, 5.0, 8.6, 5.5, 0.55, 'Google Apps Script', C_BLUE, fontsize=8.5)
     arr(ax, 5.0, 8.32, 5.0, 7.90)
 
     rbox(ax, 5.0, 7.65, 5.5, 0.50,
@@ -432,7 +461,7 @@ ax_emp = fig.add_subplot(gs[1, 4])     # Empty
 
 # Main title
 fig.text(0.5, 0.98,
-         'MTECH  FinFin Accounting Automation — API Flow Chart for PEAK Integration',
+         'MPTECH Accounting Automation — API Flow Chart for PEAK Integration',
          ha='center', va='top', fontsize=15, fontweight='bold', color='#1F1F1F')
 fig.text(0.5, 0.965,
          'บจ. เอ็มพี เทค คอร์ปอเรชั่น (สำนักงานใหญ่)  |  Google Apps Script → PEAK Account API',
