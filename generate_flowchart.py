@@ -335,15 +335,15 @@ def panel_inv(ax):
     arr(ax, 5.0, 5.32, 5.0, 4.87)
 
     rbox(ax, 5.0, 4.60, 5.5, 0.55,
-         'ใบแจ้งหนี้ (แตกงวดครบทุกงวด)', C_GREEN, fontsize=8.5)
+         'ใบแจ้งหนี้ (ยอดรวม ไม่แตกรายงวด)', C_GREEN, fontsize=8.5)
 
     stick(ax, 5.0, 2.80, 5.8, 1.60, [
         'IV Module',
         '- contactCode (เลขสัญญา)',
         '- issuedDate (วันทำสัญญา)',
-        '- products: เงินดาวน์ + ค่างวดที่ 1–N',
-        '  (accountCode: 410000, vatType: 7%)',
-        '- dueDate (แต่ละงวด)',
+        '- products: เงินดาวน์ (ถ้ามี) + ค่างวด N งวด รวม',
+        '  (quantity=N, price=งวดละ, vatType: 7%)',
+        '- dueDate: วันครบกำหนดงวดสุดท้าย',
         '- note: ชื่อลูกค้า + เลขสัญญา',
         '- ยอดรวม: CONTRACT_AMT (฿)',
     ], fontsize=7.5)
