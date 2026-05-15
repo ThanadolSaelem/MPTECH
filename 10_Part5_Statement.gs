@@ -211,12 +211,20 @@ function getReceiptData_(sheet) {
 
 function getCurrentReceiptSheetName() {
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
-  return findSheetRobust(ss, CONFIG.RECEIPT_SHEET_PREFIX, getCurrentMonthSheetName()).getName();
+  try {
+    return findSheetRobust(ss, CONFIG.RECEIPT_SHEET_PREFIX, getCurrentMonthSheetName()).getName();
+  } catch (_) {
+    return findLatestSheetByPrefix(ss, CONFIG.RECEIPT_SHEET_PREFIX).getName();
+  }
 }
 
 function getCurrentSumSheetName() {
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
-  return findSheetRobust(ss, CONFIG.SUM_SHEET_PREFIX, getCurrentMonthSheetName()).getName();
+  try {
+    return findSheetRobust(ss, CONFIG.SUM_SHEET_PREFIX, getCurrentMonthSheetName()).getName();
+  } catch (_) {
+    return findLatestSheetByPrefix(ss, CONFIG.SUM_SHEET_PREFIX).getName();
+  }
 }
 
 // ─── INV Extraction ───────────────────────────────────────────────────────────

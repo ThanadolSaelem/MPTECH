@@ -249,13 +249,52 @@ function getCurrentMonthSheetName() {
 }
 
 /**
- * ดึง Sheet Bank Statement เดือนปัจจุบัน แบบ robust
+ * หา Sheet ล่าสุดที่มีอยู่จริงตาม prefix — ไม่ยึดเดือนปัจจุบัน
+ * สแกนชื่อ sheet ทั้งหมด, parse เดือน/ปี, คืน sheet ที่ใหม่ที่สุด
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss
+ * @param {string} prefix  เช่น "Receipt", "Sum", "SCB"
  * @returns {GoogleAppsScript.Spreadsheet.Sheet}
+ */
+function findLatestSheetByPrefix(ss, prefix) {
+  const clean  = s => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const pClean = clean(prefix);
+
+  let best = null, bestDate = null;
+
+  for (const sheet of ss.getSheets()) {
+    const name = sheet.getName();
+    if (!clean(name).startsWith(pClean)) continue;
+
+    // ดึงตัวเลขจากชื่อ → หา yyyy และ mm
+    const nums = name.replace(/[^0-9]/g, ' ').trim().split(/\s+/).filter(Boolean);
+    let yyyy, mm;
+    for (const n of nums) {
+      if (n.length === 4 && Number(n) > 2000) yyyy = Number(n);
+      if (n.length <= 2 && Number(n) >= 1 && Number(n) <= 12) mm = Number(n);
+    }
+    if (!yyyy || !mm) continue;
+
+    const d = new Date(yyyy, mm - 1, 1);
+    if (!bestDate || d > bestDate) { bestDate = d; best = sheet; }
+  }
+
+  if (best) return best;
+  throw new Error(`ไม่พบ Sheet ที่มี prefix "${prefix}" ใน Spreadsheet`);
+}
+
+/**
+ * ดึง Sheet Bank Statement เดือนล่าสุดที่มีอยู่จริง
+ * @returns {string}
  */
 function getCurrentStatementSheetName() {
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
   const prefix = CONFIG.STATEMENT_SHEET_PREFIX || CONFIG.STATEMENT_SHEET_NAME || 'SCB';
-  return findSheetRobust(ss, prefix, getCurrentMonthSheetName()).getName();
+  try {
+    // ลองเดือนปัจจุบันก่อน (fast path)
+    return findSheetRobust(ss, prefix, getCurrentMonthSheetName()).getName();
+  } catch (_) {
+    return findLatestSheetByPrefix(ss, prefix).getName();
+  }
 }
 
 /**
