@@ -1,6 +1,7 @@
 """MTECH — desktop client."""
 from __future__ import annotations
 
+import re
 import threading
 import tkinter as tk
 import tkinter.font as tkfont
@@ -9,7 +10,7 @@ from datetime import datetime
 import customtkinter as ctk
 
 import config
-from api import FinFinClient, NoInternetError
+from api import FinFinClient, NoInternetError, FinFinError
 
 APP_TITLE = "MTECH ระบบบัญชี"
 APP_SIZE  = "1100x720"
@@ -116,6 +117,27 @@ PART_CARDS = [
 
 def _F(size: int, bold: bool = False) -> ctk.CTkFont:
     return ctk.CTkFont(family=FONT, size=size, weight="bold" if bold else "normal")
+
+
+def _parse_needs_rerun(result: str) -> tuple[bool, str]:
+    """ตรวจสอบ GAS summary string ว่ามีรายการค้างต้องรันต่อ"""
+    # "Error: N" หรือ "✗ N" → มีรายการที่ fail (contact ยังไม่ sync / payload error)
+    m = re.search(r'Error[:\s]+(\d+)', result, re.IGNORECASE)
+    if m and int(m.group(1)) > 0:
+        n = int(m.group(1))
+        return True, (
+            f"⚠  ยังมี {n} รายการค้าง — ระบบ checkpoint บันทึกแล้ว\n"
+            f"    กด \"Run อีกครั้ง\" เพื่อดำเนินการต่อจากจุดที่ค้างไว้"
+        )
+    # contact sync partial: "เหลือ N รายการ"
+    m2 = re.search(r'เหลือ\s+(\d+)\s+รายการ', result)
+    if m2 and int(m2.group(1)) > 0:
+        n = int(m2.group(1))
+        return True, (
+            f"⚠  Sync contacts ยังไม่ครบ — เหลืออีก {n} รายการ\n"
+            f"    กด \"Run อีกครั้ง\" เพื่อ sync ต่อ"
+        )
+    return False, ""
 
 
 class MTechApp(ctk.CTk):
@@ -471,6 +493,28 @@ class MTechApp(ctk.CTk):
             text_color=TXT, font=_F(12), corner_radius=8,
         )
         self.task_out.pack(fill="x")
+
+        # ── Re-run banner (hidden until timeout / partial completion) ─────────
+        self.rerun_banner = ctk.CTkFrame(
+            p, fg_color="#fef3c7", border_color="#f59e0b",
+            border_width=1, corner_radius=8,
+        )
+        # Not packed yet — shown dynamically by _show_rerun_banner()
+        inner = ctk.CTkFrame(self.rerun_banner, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=10)
+        self._rerun_msg = ctk.CTkLabel(
+            inner, text="", anchor="w", justify="left",
+            font=_F(13), text_color="#92400e", wraplength=680,
+        )
+        self._rerun_msg.pack(side="left", fill="x", expand=True)
+        self._rerun_btn = ctk.CTkButton(
+            inner, text="▶  Run อีกครั้ง", width=164,
+            fg_color="#d97706", hover_color="#b45309",
+            text_color=WHITE, font=_F(13, True),
+            corner_radius=6, command=self._rerun_last,
+        )
+        self._rerun_btn.pack(side="right", padx=(14, 0))
+
         return p
 
     # ── Settings ──────────────────────────────────────────────────────────────
@@ -639,19 +683,51 @@ class MTechApp(ctk.CTk):
             v = self.month_entry.get().strip()
             if v:
                 params[param_key] = v
+        self._run_with_params(action, params, label)
+
+    def _run_with_params(self, action: str, params: dict, label: str) -> None:
+        self._hide_rerun_banner()
         ts = datetime.now().strftime("%H:%M:%S")
         self.task_out.insert("end", f"[{ts}]  {label}\n")
         self.task_out.see("end")
+
         def _t():
             try:
                 r = self.client.call(action, params)
-                self._out(f"        ✓  {self._str(r)}\n")
+                result = self._str(r)
+                self._out(f"        ✓  {result}\n")
+                # ตรวจว่ายังมีรายการค้าง (Error: N > 0 หรือ contact sync ไม่ครบ)
+                needs, msg = _parse_needs_rerun(result)
+                if needs:
+                    self.after(0, lambda: self._show_rerun_banner(msg, action, params, label))
             except NoInternetError as e:
                 self._out(f"        ✗  {e}\n")
                 self.after(0, self._show_offline)
+            except FinFinError as e:
+                err_str = str(e)
+                self._out(f"        ✗  {err_str}\n")
+                if "หมดเวลา" in err_str:
+                    msg = f"⏱  {err_str}  ·  ระบบบันทึก checkpoint แล้ว"
+                    self.after(0, lambda: self._show_rerun_banner(msg, action, params, label))
             except Exception as e:
                 self._out(f"        ✗  {e}\n")
+
         threading.Thread(target=_t, daemon=True).start()
+
+    # ── Re-run banner helpers ─────────────────────────────────────────────────
+
+    def _show_rerun_banner(self, msg: str, action: str, params: dict, label: str) -> None:
+        self._rerun_msg.configure(text=msg)
+        self._pending_rerun = (action, params, label)
+        self.rerun_banner.pack(fill="x", pady=(10, 0))
+
+    def _hide_rerun_banner(self) -> None:
+        self.rerun_banner.pack_forget()
+
+    def _rerun_last(self) -> None:
+        if hasattr(self, "_pending_rerun"):
+            action, params, label = self._pending_rerun
+            self._run_with_params(action, params, label)
 
     def _out(self, t: str) -> None:
         self.task_out.insert("end", t)
