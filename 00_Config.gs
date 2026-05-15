@@ -10,8 +10,8 @@
 
 // ─── PEAK Credentials (กรอกหลังได้รับจาก PEAK) ───────────────────────────
 const CONFIG = {
-  CONNECT_ID: 'ccd8bef1-ce62-4432-9380-426bee768c34',  // MPTechCorporation UAT (15/05/2026)
-  USER_TOKEN: 'YOUR_USER_TOKEN',      // ← Generate จาก PEAK portal แล้วใส่ที่นี่
+  CONNECT_ID: 'YOUR_CONNECT_ID',       // ← ยังรอ (เปิด ZIP ด้วย M3DHAAAA20)
+  USER_TOKEN: 'ccd8bef1-ce62-4432-9380-426bee768c34',  // MPTechCorporation UAT (15/05/2026)
   BASE_URL: 'http://peakengineapidev.azurewebsites.net/api/v1',  // UAT
 
   // ─── Account Codes (ยืนยันกับ FinFin ก่อน deploy) ────────────────────────
