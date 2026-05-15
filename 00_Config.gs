@@ -29,7 +29,7 @@ const CONFIG = {
   PMT_CASH: 1,
 
   // ─── Google Sheet Settings ───────────────────────────────────────────────
-  SPREADSHEET_ID: 'YOUR_SPREADSHEET_ID',
+  SPREADSHEET_ID: '123EwnVGDbuaBg0HTsZhpdX8EgKvfa7nja9ngfenN5Zo',
 
   // Sheet สัญญาใหม่ (Part 2)
   CONTRACT_SHEET_NAME: 'สัญญาใหม่',
