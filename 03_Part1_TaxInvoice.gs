@@ -87,8 +87,9 @@ function runPart1_TaxInvoice(sheetName) {
   // ─── Submit Case A (one by one) ───────────────────────────────────────────
   for (const item of batchA) {
     try {
-      const res = callPeakAPI('post', '/Receipts/allinone', { peakReceipts: item.payload });
-      const docNo = [res.taxInvoiceCode, res.receiptCode].filter(Boolean).join(' / ');
+      const res = callPeakAPI('post', '/receipts/allinone', { PeakReceipts: { receipts: [item.payload] } });
+      const rec = (res.PeakReceipts && res.PeakReceipts.receipts && res.PeakReceipts.receipts[0]) || res;
+      const docNo = [rec.taxInvoiceCode || rec.code, rec.receiptCode].filter(Boolean).join(' / ') || JSON.stringify(res).slice(0, 80);
       writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, docNo);
       logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'SUCCESS', docNo, 'Case A');
       countA++;
@@ -103,8 +104,8 @@ function runPart1_TaxInvoice(sheetName) {
   if (batchB_tax.length > 0) {
     for (const chunk of chunkArray(batchB_tax, CONFIG.BATCH_SIZE)) {
       try {
-        const res = callPeakAPI('post', '/Invoices/queue',
-          { peakInvoices: chunk.map(x => x.payload) });
+        const res = callPeakAPI('post', '/invoices/queue',
+          { PeakInvoices: { invoices: chunk.map(x => x.payload) } });
         const queueId = res.queueId || res.id || 'unknown';
         saveQueueEntry('invoice', queueId, sheetName,
           chunk.map(x => ({
@@ -125,8 +126,8 @@ function runPart1_TaxInvoice(sheetName) {
   if (batchB_rec.length > 0) {
     for (const chunk of chunkArray(batchB_rec, CONFIG.BATCH_SIZE)) {
       try {
-        const res = callPeakAPI('post', '/Receipts/queue',
-          { peakReceipts: chunk.map(x => x.payload) });
+        const res = callPeakAPI('post', '/receipts/queue',
+          { PeakReceipts: { receipts: chunk.map(x => x.payload) } });
         const queueId = res.queueId || res.id || 'unknown';
         saveQueueEntry('receipt', queueId, sheetName,
           chunk.map(x => ({
@@ -153,56 +154,63 @@ function runPart1_TaxInvoice(sheetName) {
 
 function buildAllinonePayload(invCode, payDate, amount, desc, payType, ref) {
   return {
-    reference: ref,
-    issuedDate: formatDateForAPI(payDate),
-    dueDate: formatDateForAPI(payDate),
-    contactCode: invCode,
-    isTaxInvoice: true,
-    note: desc,
+    code:         ref,
+    issuedDate:   formatDateForAPI(payDate),
+    dueDate:      formatDateForAPI(payDate),
+    contactCode:  String(invCode),
+    isTaxInvoice: 1,
+    remark:       desc,
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
       description: desc,
-      quantity: 1,
-      price: amount,
-      vatType: CONFIG.VAT_TYPE_7,
+      quantity:    1,
+      price:       amount,
+      vatType:     CONFIG.VAT_TYPE_7,
     }],
-    paymentMethods: [{ type: payType, amount: amount }],
+    paidPayments: {
+      paymentDate: formatDateForAPI(payDate),
+      payments: [{ amount: amount }],
+    },
   };
 }
 
 function buildTaxInvoiceOnlyPayload(invCode, taxDate, amount, desc, ref) {
   return {
-    reference: ref,
-    issuedDate: formatDateForAPI(taxDate),
-    dueDate: formatDateForAPI(taxDate),
-    contactCode: invCode,
-    isTaxInvoice: true,
-    note: desc,
+    code:         ref,
+    issuedDate:   formatDateForAPI(taxDate),
+    dueDate:      formatDateForAPI(taxDate),
+    contactCode:  String(invCode),
+    isTaxInvoice: 1,
+    remark:       desc,
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
       description: desc,
-      quantity: 1,
-      price: amount,
-      vatType: CONFIG.VAT_TYPE_7,
+      quantity:    1,
+      price:       amount,
+      vatType:     CONFIG.VAT_TYPE_7,
     }],
   };
 }
 
 function buildReceiptOnlyPayload(invCode, payDate, amount, desc, payType, ref) {
   return {
-    reference: ref,
-    issuedDate: formatDateForAPI(payDate),
-    contactCode: invCode,
-    isTaxInvoice: false,
-    note: desc,
+    code:         ref,
+    issuedDate:   formatDateForAPI(payDate),
+    dueDate:      formatDateForAPI(payDate),
+    contactCode:  String(invCode),
+    isTaxInvoice: 0,
+    remark:       desc,
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
       description: desc,
-      quantity: 1,
-      price: amount,
-      vatType: CONFIG.VAT_TYPE_7,
+      quantity:    1,
+      price:       amount,
+      vatType:     CONFIG.VAT_TYPE_7,
     }],
-    paymentMethods: [{ type: payType, amount: amount }],
+    paidPayments: {
+      paymentDate: formatDateForAPI(payDate),
+      payments: [{ amount: amount }],
+    },
   };
 }
 
