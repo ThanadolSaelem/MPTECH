@@ -103,14 +103,15 @@ function buildInvoiceAllInOnePayload(
     });
   }
 
-  for (let n = 0; n < numInstallments; n++) {
+  if (numInstallments > 0) {
+    const lastDueDate = dueDates[dueDates.length - 1] || contractDate;
     products.push({
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
-      description: `ค่างวดที่ ${n + 1} สัญญา ${invCode}`,
-      quantity:    1,
+      description: `ค่างวด ${numInstallments} งวด งวดละ ${installmentAmt.toLocaleString()} บาท สัญญา ${invCode}`,
+      quantity:    numInstallments,
       price:       installmentAmt,
       vatType:     CONFIG.VAT_TYPE_7,
-      dueDate:     formatDateForAPI(dueDates[n] || dueDates[dueDates.length - 1]),
+      dueDate:     formatDateForAPI(lastDueDate),
     });
   }
 

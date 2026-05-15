@@ -10,9 +10,10 @@
 
 // ─── PEAK Credentials (กรอกหลังได้รับจาก PEAK) ───────────────────────────
 const CONFIG = {
-  CONNECT_ID: 'YOUR_CONNECT_ID',
-  USER_TOKEN: 'YOUR_USER_TOKEN',
-  BASE_URL: 'https://api.peakaccount.com/api/v1',
+  CONNECT_ID: 'mptechcorporation_peakapi_uat',  // ConnectId จาก PEAK ZIP
+  CONNECT_PASSWORD: 'sJY3C7rB3QrrBpG4nXcR',    // ConnectKey จาก PEAK ZIP
+  USER_TOKEN: 'ccd8bef1-ce62-4432-9380-426bee768c34',  // MPTechCorporation UAT (15/05/2026)
+  BASE_URL: 'http://peakengineapidev.azurewebsites.net/api/v1',  // UAT
 
   // ─── Account Codes (ยืนยันกับ FinFin ก่อน deploy) ────────────────────────
   ACCOUNT_CODE_SALES: '410000',
@@ -21,13 +22,14 @@ const CONFIG = {
   ACCOUNT_CODE_AR: '110000',
 
   // ─── VAT / Payment Types ─────────────────────────────────────────────────
-  VAT_TYPE_7: 1,
-  VAT_TYPE_NONE: 3,
+  // PEAK: vatType 1=ไม่มี VAT, 2=VAT 0%, 3=VAT 7%
+  VAT_TYPE_7: 3,
+  VAT_TYPE_NONE: 1,
   PMT_TRANSFER: 8,
   PMT_CASH: 1,
 
   // ─── Google Sheet Settings ───────────────────────────────────────────────
-  SPREADSHEET_ID: 'YOUR_SPREADSHEET_ID',
+  SPREADSHEET_ID: '123EwnVGDbuaBg0HTsZhpdX8EgKvfa7nja9ngfenN5Zo',
 
   // Sheet สัญญาใหม่ (Part 2)
   CONTRACT_SHEET_NAME: 'สัญญาใหม่',
