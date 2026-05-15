@@ -210,11 +210,13 @@ function getReceiptData_(sheet) {
 }
 
 function getCurrentReceiptSheetName() {
-  return `${CONFIG.RECEIPT_SHEET_PREFIX}${getCurrentMonthSheetName()}`;
+  const ss = SpreadsheetApp.openById(getSpreadsheetId());
+  return findSheetRobust(ss, CONFIG.RECEIPT_SHEET_PREFIX, getCurrentMonthSheetName()).getName();
 }
 
 function getCurrentSumSheetName() {
-  return `${CONFIG.SUM_SHEET_PREFIX}${getCurrentMonthSheetName()}`;
+  const ss = SpreadsheetApp.openById(getSpreadsheetId());
+  return findSheetRobust(ss, CONFIG.SUM_SHEET_PREFIX, getCurrentMonthSheetName()).getName();
 }
 
 // ─── INV Extraction ───────────────────────────────────────────────────────────

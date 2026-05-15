@@ -169,19 +169,77 @@ function getSpreadsheetId() {
 }
 
 /**
- * ดึง Sheet ตารางรับชำระตามชื่อ (เช่น "04.2026")
- * @param {string} sheetName
+ * สร้าง candidate sheet names ทุก pattern จาก prefix + MM + YYYY
+ * รองรับ: Receipt03.2026, Receipt.03.2026, Receipt.2026.03,
+ *          03Receipt.2026, 03.Receipt.2026, Receipt2026.03 ฯลฯ
+ */
+function sheetNameCandidates_(prefix, mm, yyyy) {
+  return [
+    `${prefix}${mm}.${yyyy}`,       // Receipt03.2026  ← ยืนยันแล้ว
+    `${prefix}.${mm}.${yyyy}`,      // Receipt.03.2026
+    `${prefix}${yyyy}.${mm}`,       // Receipt2026.03
+    `${prefix}.${yyyy}.${mm}`,      // Receipt.2026.03
+    `${mm}${prefix}.${yyyy}`,       // 03Receipt.2026
+    `${mm}.${prefix}.${yyyy}`,      // 03.Receipt.2026
+    `${mm}.${yyyy}.${prefix}`,      // 03.2026.Receipt
+    `${prefix}${mm}${yyyy}`,        // Receipt032026
+    `${prefix}.${mm}${yyyy}`,       // Receipt.032026
+  ];
+}
+
+/**
+ * ค้นหา Sheet แบบ robust — ลอง candidate patterns ทั้งหมด
+ * แล้ว fallback fuzzy (ชื่อมี prefix + mm + yyyy)
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss
+ * @param {string} prefix  เช่น "Receipt", "Sum", "SCB"
+ * @param {string} monthStr  เช่น "03.2026"
+ * @returns {GoogleAppsScript.Spreadsheet.Sheet}
+ */
+function findSheetRobust(ss, prefix, monthStr) {
+  const parts = String(monthStr).match(/(\d{1,2})[.\-\/](\d{4})/);
+  if (!parts) throw new Error(`รูปแบบเดือนไม่ถูกต้อง: "${monthStr}" (ต้องเป็น MM.YYYY)`);
+  const mm   = parts[1].padStart(2, '0');
+  const yyyy = parts[2];
+
+  // 1) ลอง candidates ตามลำดับ
+  for (const name of sheetNameCandidates_(prefix, mm, yyyy)) {
+    const s = ss.getSheetByName(name);
+    if (s) return s;
+  }
+
+  // 2) Fuzzy: หา sheet ที่ชื่อมี prefix + mm + yyyy (ตัวเลขเหมือนกัน)
+  const clean = str => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const prefixClean = clean(prefix);
+  for (const sheet of ss.getSheets()) {
+    const n = clean(sheet.getName());
+    if (n.includes(prefixClean) && n.includes(mm) && n.includes(yyyy)) {
+      return sheet;
+    }
+  }
+
+  const tried = sheetNameCandidates_(prefix, mm, yyyy).join(', ');
+  throw new Error(`ไม่พบ Sheet "${prefix}*${mm}*${yyyy}" — ลองแล้ว: ${tried}`);
+}
+
+/**
+ * ดึง Sheet ตารางรับชำระตามชื่อ (เช่น "Receipt03.2026")
+ * รองรับทุก format โดย findSheetRobust
+ * @param {string} sheetName  ชื่อเต็ม หรือ prefix+MM.YYYY ก็ได้
  * @returns {GoogleAppsScript.Spreadsheet.Sheet}
  */
 function getPaymentSheet(sheetName) {
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
-  const sheet = ss.getSheetByName(sheetName);
-  if (!sheet) throw new Error(`ไม่พบ Sheet: "${sheetName}"`);
-  return sheet;
+  // ลองตรงก่อน (fast path)
+  const direct = ss.getSheetByName(sheetName);
+  if (direct) return direct;
+  // ถ้าไม่เจอ → parse prefix + month แล้วใช้ robust search
+  const m = sheetName.match(/^([A-Za-z]+)[.\-]?(\d{1,2}[.\-\/]\d{4}|\d{4}[.\-\/]\d{1,2})$/);
+  if (m) return findSheetRobust(ss, m[1], m[2].replace(/[.\-\/](\d{4})$/, '.$1').replace(/^(\d{4})[.\-\/](\d{1,2})$/, '$2.$1'));
+  throw new Error(`ไม่พบ Sheet: "${sheetName}"`);
 }
 
 /**
- * ดึงชื่อ Sheet ปัจจุบัน (เดือนนี้) เช่น "04.2026"
+ * ดึงชื่อ Sheet ปัจจุบัน (เดือนนี้) เช่น "05.2026"
  * @returns {string}
  */
 function getCurrentMonthSheetName() {
@@ -191,12 +249,13 @@ function getCurrentMonthSheetName() {
 }
 
 /**
- * ดึงชื่อ Sheet Bank Statement เดือนปัจจุบัน เช่น "SCB04.2026"
- * format ตามที่พี่นกใช้จริงในไฟล์ (ไม่มี dot ระหว่าง prefix กับเดือน)
- * @returns {string}
+ * ดึง Sheet Bank Statement เดือนปัจจุบัน แบบ robust
+ * @returns {GoogleAppsScript.Spreadsheet.Sheet}
  */
 function getCurrentStatementSheetName() {
-  return `${CONFIG.STATEMENT_SHEET_PREFIX || CONFIG.STATEMENT_SHEET_NAME}${getCurrentMonthSheetName()}`;
+  const ss = SpreadsheetApp.openById(getSpreadsheetId());
+  const prefix = CONFIG.STATEMENT_SHEET_PREFIX || CONFIG.STATEMENT_SHEET_NAME || 'SCB';
+  return findSheetRobust(ss, prefix, getCurrentMonthSheetName()).getName();
 }
 
 /**
