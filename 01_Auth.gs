@@ -182,3 +182,12 @@ function resetClientTokenCache() {
   props.deleteProperty('PEAK_CLIENT_TOKEN_TS');
   Logger.log('Client Token cache cleared.');
 }
+
+/**
+ * ดึงรายการ Payment Methods จาก PEAK และ log ออกมา
+ * รัน function นี้จาก GAS editor เพื่อดู paymentMethodId ที่ถูกต้อง
+ */
+function testGetPaymentMethods() {
+  const data = callPeakAPI('get', '/paymentmethods', null, { page: 1 });
+  Logger.log(JSON.stringify(data, null, 2));
+}

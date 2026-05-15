@@ -34,10 +34,10 @@ const CONFIG = {
   // Sheet สัญญาใหม่ (Part 2)
   CONTRACT_SHEET_NAME: 'สัญญาใหม่',
 
-  // Sheet naming prefixes — ต่อท้ายด้วย ".MM.YYYY" อัตโนมัติ
-  SUM_SHEET_PREFIX: 'Sum',
-  RECEIPT_SHEET_PREFIX: 'Receipt',
-  STATEMENT_SHEET_PREFIX: 'SCB',
+  // Sheet naming prefixes — ต่อท้ายด้วย "MM.YYYY" อัตโนมัติ → "Sum.05.2026"
+  SUM_SHEET_PREFIX: 'Sum.',
+  RECEIPT_SHEET_PREFIX: 'Receipt.',
+  STATEMENT_SHEET_PREFIX: 'SCB.',
 
   // Sheet ไฟล์รับคืนเครื่อง (อยู่คนละ Spreadsheet ได้)
   RETURN_SPREADSHEET_ID: 'SPREADSHEET_ID_OF_RETURN_FILE',
