@@ -502,6 +502,65 @@ function debugPart1Row() {
   } else {
     Logger.log('⚠️ ข้าม Step 7: contactUuid=' + contactUuid + ', pmtUuid=' + pmtUuid);
   }
+
+  // ─── Step 8: ทดลอง payment method format ต่างๆ — Step 7 ผ่าน contact แล้ว เหลือ payment method ──
+  // Step 7 result: "Missing Payment Method Data At Payment [1]" → paymentMethodId alone ไม่พอ
+  // ตามรูปแบบ contact (nested {id,code}) ลอง 4 รูปแบบหา format ที่ถูก
+  if (contactUuid && pmtUuid) {
+    const pmtCode = 'CSH001';
+    const pmtType = 1;
+    const baseProducts = [{
+      accountCode: CONFIG.ACCOUNT_CODE_SALES,
+      description: desc, quantity: 1, price: amt, vatType: CONFIG.VAT_TYPE_7,
+    }];
+    const baseContact = { id: contactUuid, code: invCode };
+    const dateStr = formatDateForAPI(payDate);
+
+    const variants = [
+      {
+        name: '8a: paymentMethod nested {id,code}',
+        paymentObj: { paymentMethod: { id: pmtUuid, code: pmtCode }, amount: amt },
+      },
+      {
+        name: '8b: paymentMethod nested {id,code,type}',
+        paymentObj: { paymentMethod: { id: pmtUuid, code: pmtCode, type: pmtType }, amount: amt },
+      },
+      {
+        name: '8c: flat paymentMethodId+Code+Type',
+        paymentObj: { paymentMethodId: pmtUuid, paymentMethodCode: pmtCode, paymentMethodType: pmtType, amount: amt },
+      },
+      {
+        name: '8d: flat type+id (no Code)',
+        paymentObj: { type: pmtType, paymentMethodId: pmtUuid, amount: amt },
+      },
+    ];
+
+    for (let k = 0; k < variants.length; k++) {
+      const v = variants[k];
+      const refX = 'DEBUG-' + String.fromCharCode(71 + k) + '-' + invCode + '-' + Date.now();
+      const payloadX = {
+        code:         refX,
+        issuedDate:   dateStr,
+        dueDate:      dateStr,
+        contact:      baseContact,
+        istaxInvoice: 1,
+        remark:       desc,
+        products:     baseProducts,
+        paidPayments: { paymentDate: dateStr, payments: [v.paymentObj] },
+      };
+      Logger.log('─── Step ' + v.name + ' ───');
+      Logger.log('Payload: ' + JSON.stringify(payloadX));
+      const resX = UrlFetchApp.fetch(CONFIG.BASE_URL + '/receipts/allinone', {
+        method: 'post', headers: buildHeaders(), contentType: 'application/json',
+        payload: JSON.stringify({ PeakReceipts: { receipts: [payloadX] } }),
+        muteHttpExceptions: true,
+      });
+      Logger.log('HTTP ' + v.name + ': ' + resX.getResponseCode());
+      Logger.log('BODY ' + v.name + ': ' + resX.getContentText());
+    }
+  } else {
+    Logger.log('⚠️ ข้าม Step 8: contactUuid=' + contactUuid + ', pmtUuid=' + pmtUuid);
+  }
 }
 
 // ─── Part 1 ส่วนเสริม: ค่าบริการเพิ่มเติม (อ่านจาก Sum sheet) ────────────────
