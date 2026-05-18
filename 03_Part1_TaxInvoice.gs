@@ -39,7 +39,7 @@ function runPart1_TaxInvoice(sheetName) {
   const batchB_tax = []; // Case B tax invoice
   const batchB_rec = []; // Case B receipt
   let countSkip = 0, countError = 0;
-  const nameMap = {};    // invCode → customer name (for contact sync)
+  const nameMap = {};
 
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
@@ -68,13 +68,11 @@ function runPart1_TaxInvoice(sheetName) {
     const dueDate = toDate(row[CONFIG.RECEIPT_COL.DUE_DATE]);
     const installment = String(row[CONFIG.RECEIPT_COL.INST_TYPE] || '').trim();
     const desc = buildReceiptDescription_(installment, invCode);
-    const payType = CONFIG.PMT_TRANSFER;  // default — Receipt sheet ไม่มีช่องระบุวิธีการชำระ
+    const payType = CONFIG.PMT_TRANSFER;
 
-    // ─── Mark PROCESSING ──────────────────────────────────────────────────
     writeReceiptCell_(sheet, i, CONFIG.RECEIPT_COL.PEAK_DOC, CONFIG.PROCESSING_MARKER);
 
     // ใช้เลขที่ smemove (IVF-YYMMDD-NNN) เป็น code ใน PEAK เพื่อ reconcile ได้ตรง
-    // ถ้าไม่มี → ใช้ buildReference ตามปกติ
     const smemoveTaxRef = smemoveDoc.startsWith('IVF-') ? smemoveDoc : null;
 
     if (dueDate && compareDates(payDate, dueDate) < 0) {
@@ -111,27 +109,25 @@ function runPart1_TaxInvoice(sheetName) {
     }
   }
 
-  // ─── Resolve contactId (UUID) for endpoints that require it ──────────────
-  // /receipts/allinone และ /invoices/queue ต้องการ contactId (UUID) ไม่ใช่ contactCode
-  // /receipts/queue ใช้ contactCode ปกติ — batchB_rec ไม่ต้องแก้
-  // ถ้า contactId หาไม่ได้ (contact POST ล้มเหลว) → clear PROCESSING แล้ว skip แทนที่จะ submit แล้วได้ error
-  // มี time guard เพราะ lazy GET อาจใช้เวลามากถ้า UUIDs ยังไม่อยู่ใน cache
+  // ─── Resolve contacts before submission ───────────────────────────────────
+  // /receipts/allinone ใช้ contactCode (contact ต้องมีอยู่ใน PEAK แล้ว — ผ่าน ensureContactsBatch_)
+  // /invoices/queue   ต้องการ contactId (UUID) — lazy GET ถ้า cache มีแค่ 1
+  // /receipts/queue   ใช้ contactCode — batchB_rec ไม่ต้องแก้
   const resolvedA    = [];
   const resolvedBtax = [];
 
+  // Case A — allinone: ตรวจ cache เท่านั้น (ไม่ lazy GET → เร็ว)
   for (const item of batchA) {
     if (timeUp()) { stoppedEarly = true; break; }
-    const cid = getContactId_(item.invCode);
-    if (cid) {
-      item.payload.contactId = cid;
-      delete item.payload.contactCode;
-      resolvedA.push(item);
+    if (isContactSynced_(item.invCode)) {
+      resolvedA.push(item);  // payload คง contactCode ไว้ — allinone ใช้ contactCode
     } else {
       writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
-      logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'SKIP', '', 'ไม่พบ contactId — รัน Sync Contacts ก่อนแล้วลองใหม่');
+      logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'SKIP', '', 'Contact ยังไม่ sync — รัน Sync Contacts ก่อน');
       countSkip++;
     }
   }
+  // Case B — invoices/queue: ต้องการ contactId (UUID)
   if (!stoppedEarly) {
     for (const item of batchB_tax) {
       if (timeUp()) { stoppedEarly = true; break; }
@@ -144,7 +140,6 @@ function runPart1_TaxInvoice(sheetName) {
         writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
         logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'SKIP', '', 'ไม่พบ contactId — รัน Sync Contacts ก่อนแล้วลองใหม่');
         countSkip++;
-        // batchB_rec มีแถวเดียวกัน — clear ด้วย
         const recItem = batchB_rec.find(r => r.rowIndex === item.rowIndex);
         if (recItem) writeReceiptCell_(sheet, recItem.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
       }
@@ -194,7 +189,6 @@ function runPart1_TaxInvoice(sheetName) {
       }
     }
   }
-  // batchB_rec: ส่งเฉพาะแถวที่ tax invoice ผ่าน (resolvedBtax) — แถวที่ skip ไปแล้วไม่ต้องส่ง
   const resolvedTaxRows = new Set(resolvedBtax.map(t => t.rowIndex));
   const resolvedBrec = batchB_rec.filter(r => resolvedTaxRows.has(r.rowIndex));
   if (!stoppedEarly && resolvedBrec.length > 0) {
@@ -237,7 +231,7 @@ function buildAllinonePayload(invCode, payDate, amount, desc, payType, ref) {
     issuedDate:   formatDateForAPI(payDate),
     dueDate:      formatDateForAPI(payDate),
     contactCode:  String(invCode),
-    isTaxInvoice: 1,
+    isTaxInvoice: true,
     remark:       desc,
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
@@ -247,8 +241,8 @@ function buildAllinonePayload(invCode, payDate, amount, desc, payType, ref) {
       vatType:     CONFIG.VAT_TYPE_7,
     }],
     paidPayments: {
-      paymentDate: formatDateForAPI(payDate),
-      payments: [{ amount: amount }],
+      paymentDate:    formatDateForAPI(payDate),
+      paymentMethods: [{ type: payType, amount: amount }],
     },
   };
 }
@@ -259,7 +253,7 @@ function buildTaxInvoiceOnlyPayload(invCode, taxDate, amount, desc, ref) {
     issuedDate:   formatDateForAPI(taxDate),
     dueDate:      formatDateForAPI(taxDate),
     contactCode:  String(invCode),
-    isTaxInvoice: 1,
+    isTaxInvoice: true,
     remark:       desc,
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
@@ -277,7 +271,7 @@ function buildReceiptOnlyPayload(invCode, payDate, amount, desc, payType, ref) {
     issuedDate:   formatDateForAPI(payDate),
     dueDate:      formatDateForAPI(payDate),
     contactCode:  String(invCode),
-    isTaxInvoice: 0,
+    isTaxInvoice: false,
     remark:       desc,
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
@@ -295,21 +289,13 @@ function buildReceiptOnlyPayload(invCode, payDate, amount, desc, payType, ref) {
 
 // ─── Helpers (Receipt-sheet specific) ─────────────────────────────────────────
 
-/**
- * เพิ่มคอลัมน์ "เลขที่ PEAK" (I) ถ้ายังไม่มี
- */
 function ensureReceiptHeader_(sheet) {
   const headerRow = CONFIG.RECEIPT_HEADER_ROW;
   const lastCol = sheet.getLastColumn();
   if (lastCol >= CONFIG.RECEIPT_COL.PEAK_DOC + 1) return;
-
   sheet.getRange(headerRow, CONFIG.RECEIPT_COL.PEAK_DOC + 1).setValue('เลขที่ PEAK');
 }
 
-/**
- * เขียนค่าเข้า Receipt sheet (1-indexed row, col)
- * +1 (header) +1 (0→1)
- */
 function writeReceiptCell_(sheet, rowIndex, col, value) {
   sheet.getRange(rowIndex + CONFIG.RECEIPT_HEADER_ROW + 1, col + 1).setValue(value);
 }
@@ -330,10 +316,47 @@ function chunkArray(arr, size) {
   return chunks;
 }
 
+/**
+ * ทดสอบ allinone กับ 1 แถวจริงจาก Receipt sheet แล้ว log raw response
+ * ใช้เพื่อ diagnose ว่า PEAK ตอบอะไรกันแน่
+ */
+function debugPart1Row() {
+  const sheetName = getCurrentReceiptSheetName();
+  const dataRowIndex = 0;
+
+  const ss = SpreadsheetApp.openById(getSpreadsheetId());
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) { Logger.log('ไม่พบ sheet: ' + sheetName); return; }
+
+  const data = getReceiptData_(sheet);
+  const row = data[dataRowIndex];
+  if (!row) { Logger.log('ไม่พบ row index: ' + dataRowIndex); return; }
+
+  const invCode = String(row[CONFIG.RECEIPT_COL.INV] || '').trim();
+  const amt     = parseAmount(row[CONFIG.RECEIPT_COL.AMT]);
+  const payDate = toDate(row[CONFIG.RECEIPT_COL.PAY_DATE]);
+  const inst    = String(row[CONFIG.RECEIPT_COL.INST_TYPE] || '').trim();
+  const desc    = buildReceiptDescription_(inst, invCode);
+  const ref     = 'DEBUG-' + invCode + '-' + Date.now();
+
+  Logger.log(`Row ${dataRowIndex}: invCode=${invCode}, amt=${amt}, payDate=${payDate}`);
+
+  const payload = buildAllinonePayload(invCode, payDate, amt, desc, CONFIG.PMT_TRANSFER, ref);
+  Logger.log('Payload: ' + JSON.stringify(payload, null, 2));
+
+  const url = CONFIG.BASE_URL + '/receipts/allinone';
+  const res = UrlFetchApp.fetch(url, {
+    method: 'post',
+    headers: buildHeaders(),
+    contentType: 'application/json',
+    payload: JSON.stringify({ PeakReceipts: { receipts: [payload] } }),
+    muteHttpExceptions: true,
+  });
+  Logger.log('HTTP: ' + res.getResponseCode());
+  Logger.log('BODY: ' + res.getContentText());
+}
+
 // ─── Part 1 ส่วนเสริม: ค่าบริการเพิ่มเติม (อ่านจาก Sum sheet) ────────────────
-// ⚠️ Sum sheet มีแค่ col SERVICE_FEE (N, index 13) — ไม่มีช่อง DATE/DOC/TYPE
-//    → ใช้ วันที่ทำสัญญา (B) เป็น fallback date
-//    → เลขที่ PEAK เขียนไปคอลัมน์ใหม่ (ถัดจาก DUE_DATE) อัตโนมัติ
 
 function runPart1_ServiceFee(sheetName) {
   sheetName = sheetName || getCurrentSumSheetName();
@@ -343,7 +366,7 @@ function runPart1_ServiceFee(sheetName) {
 
   toast(`⏳ Part 1 ค่าบริการ — ${sheetName}`, 'FinFin');
 
-  const svcDocCol = ensureSvcFeeHeader_(sheet);  // column index (0-based) สำหรับ OUTPUT
+  const svcDocCol = ensureSvcFeeHeader_(sheet);
   const data = getSumData_(sheet);
 
   const eligible = [];
@@ -403,9 +426,8 @@ function runPart1_ServiceFee(sheetName) {
 function ensureSvcFeeHeader_(sheet) {
   const headerRow = CONFIG.SUM_HEADER_ROW;
   const lastCol = sheet.getLastColumn();
-  const targetCol = CONFIG.COL.DUE_DATE + 1;  // R = หลัง Q (due_date)
+  const targetCol = CONFIG.COL.DUE_DATE + 1;
   if (lastCol >= targetCol + 1) {
-    // ตรวจว่ามี header "เลขที่ PEAK" แล้วไหม
     const existing = sheet.getRange(headerRow, targetCol + 1).getValue();
     if (!existing) sheet.getRange(headerRow, targetCol + 1).setValue('เลขที่ PEAK (ค่าบริการ)');
   } else {
