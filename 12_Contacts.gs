@@ -103,6 +103,21 @@ function ensureContact_(invCode, name) {
   ensureContactsBatch_({ [String(invCode).trim()]: name });
 }
 
+// ─── Cache check (no API call) ────────────────────────────────────────────────
+
+/**
+ * คืน true ถ้า contact ถูก sync ไว้ใน cache แล้ว (มีอยู่ใน PEAK)
+ * ใช้ใน Part 1 เพื่อตรวจสอบก่อนส่ง allinone โดยไม่ต้องเรียก GET
+ * @param {string} invCode
+ * @returns {boolean}
+ */
+function isContactSynced_(invCode) {
+  const cache = JSON.parse(
+    PropertiesService.getScriptProperties().getProperty(CONTACT_CACHE_KEY_) || '{}'
+  );
+  return !!cache[String(invCode).trim()];
+}
+
 // ─── UUID Lookup ──────────────────────────────────────────────────────────────
 
 /**

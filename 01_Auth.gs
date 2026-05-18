@@ -199,7 +199,7 @@ function debugAllinone() {
     issuedDate:   '20260310',
     dueDate:      '20260310',
     contactCode:  '1752485138',
-    isTaxInvoice: 1,
+    isTaxInvoice: true,
     remark:       'ทดสอบ debug',
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
@@ -209,8 +209,8 @@ function debugAllinone() {
       vatType:     CONFIG.VAT_TYPE_7,
     }],
     paidPayments: {
-      paymentDate: '20260310',
-      payments: [{ amount: 107 }],
+      paymentDate:    '20260310',
+      paymentMethods: [{ type: CONFIG.PMT_TRANSFER, amount: 107 }],
     },
   };
   const res = UrlFetchApp.fetch(CONFIG.BASE_URL + '/receipts/allinone', {
