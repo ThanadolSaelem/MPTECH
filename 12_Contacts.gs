@@ -15,10 +15,10 @@
  */
 
 const CONTACT_CACHE_KEY_    = 'PEAK_SYNCED_CONTACTS';
-const CONTACT_SYNC_SAVE_N_  = 20;
-const CONTACT_SYNC_MAX_MS_  = 4.5 * 60 * 1000;
+const CONTACT_SYNC_SAVE_N_  = 20;               // write cache every N new contacts
+const CONTACT_SYNC_MAX_MS_  = 4.5 * 60 * 1000; // 4.5 min soft limit per call
 
-// ─── Batch Sync (called by Part 1 / Part 2 / Part 3) ─────────────────────────
+// ─── Batch Sync (called by Part 1 / Part 2 / Part 3) ─────────────────────────────
 
 function ensureContactsBatch_(codeNameMap) {
   const props  = PropertiesService.getScriptProperties();
@@ -83,20 +83,10 @@ function ensureContactsBatch_(codeNameMap) {
   }
 }
 
-// ─── Single-contact wrapper ───────────────────────────────────────────────────
-
 function ensureContact_(invCode, name) {
   ensureContactsBatch_({ [String(invCode).trim()]: name });
 }
 
-// ─── Cache check (no API call) ────────────────────────────────────────────────
-
-/**
- * คืน true ถ้า contact ถูก sync ไว้ใน cache แล้ว (มีอยู่ใน PEAK)
- * ใช้ใน Part 1 เพื่อตรวจสอบก่อนส่ง allinone โดยไม่ต้องเรียก GET
- * @param {string} invCode
- * @returns {boolean}
- */
 function isContactSynced_(invCode) {
   const cache = JSON.parse(
     PropertiesService.getScriptProperties().getProperty(CONTACT_CACHE_KEY_) || '{}'
@@ -104,13 +94,6 @@ function isContactSynced_(invCode) {
   return !!cache[String(invCode).trim()];
 }
 
-// ─── UUID Lookup ──────────────────────────────────────────────────────────────
-
-/**
- * คืน UUID (contactId) สำหรับ invCode — ใช้กับ /invoices/queue
- * @param {string} invCode
- * @returns {string|null} UUID or null
- */
 function getContactId_(invCode) {
   const props = PropertiesService.getScriptProperties();
   const cache = JSON.parse(props.getProperty(CONTACT_CACHE_KEY_) || '{}');
@@ -135,8 +118,6 @@ function getContactId_(invCode) {
   }
   return null;
 }
-
-// ─── Standalone Sync ─────────────────────────────────────────────────────────
 
 function runSyncContacts(sheetName) {
   sheetName = sheetName || getCurrentReceiptSheetName();
@@ -171,8 +152,6 @@ function runSyncContacts(sheetName) {
   return summary;
 }
 
-// ─── Cleanup Helpers ─────────────────────────────────────────────────────────
-
 function clearBadPeakDocs(sheetName) {
   sheetName = sheetName || getCurrentReceiptSheetName();
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
@@ -200,8 +179,6 @@ function clearContactSyncCache() {
   PropertiesService.getScriptProperties().deleteProperty(CONTACT_CACHE_KEY_);
   Logger.log('Contact sync cache cleared.');
 }
-
-// ─── Debug ────────────────────────────────────────────────────────────────────
 
 function testGetContact() {
   const invCode = '1752485138';

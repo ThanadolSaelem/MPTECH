@@ -1,8 +1,14 @@
 /**
  * FinFin Automation — Authentication & PEAK API Headers
+ *
+ * PEAK Auth Flow:
+ *  1. สร้าง Time-Stamp (yyyyMMddHHmmss)
+ *  2. สร้าง Time-Signature = HMAC-SHA1(Time-Stamp, CONNECT_ID) → hex
+ *  3. POST /ClientToken → ได้ Client-Token (อายุ 24 ชม.)
+ *  4. แนบ headers ทุก request: Time-Stamp, Time-Signature, Client-Token, User-Token
  */
 
-// ─── Time-Stamp ─────────────────────────────────────────────────────────────
+// ─── Time-Stamp ──────────────────────────────────────────────────────────────
 function buildTimeStamp() {
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
@@ -26,7 +32,7 @@ function hmacSha1Hex(message, key) {
   return bytes.map(b => ('0' + (b & 0xff).toString(16)).slice(-2)).join('');
 }
 
-// ─── Client Token (cached 23 ชม.) ────────────────────────────────────────────
+// ─── Client Token (cached 23 ชม.) ───────────────────────────────────────────────
 function getClientToken() {
   const props = PropertiesService.getScriptProperties();
   const cached = props.getProperty('PEAK_CLIENT_TOKEN');
@@ -34,7 +40,9 @@ function getClientToken() {
 
   if (cached && cachedAt) {
     const age = Date.now() - Number(cachedAt);
-    if (age < 23 * 60 * 60 * 1000) return cached;
+    if (age < 23 * 60 * 60 * 1000) {
+      return cached;
+    }
   }
 
   const ts = buildTimeStamp();
@@ -44,7 +52,10 @@ function getClientToken() {
   const options = {
     method: 'post',
     contentType: 'application/json',
-    headers: { 'Time-Stamp': ts, 'Time-Signature': sig },
+    headers: {
+      'Time-Stamp': ts,
+      'Time-Signature': sig,
+    },
     payload: JSON.stringify({
       PeakClientToken: {
         connectId: CONFIG.CONNECT_ID,
@@ -68,11 +79,12 @@ function getClientToken() {
   return token;
 }
 
-// ─── Build Request Headers ────────────────────────────────────────────────────
+// ─── Build Request Headers ────────────────────────────────────────────────
 function buildHeaders() {
   const ts = buildTimeStamp();
   const sig = hmacSha1Hex(ts, CONFIG.CONNECT_ID);
   const clientToken = getClientToken();
+
   // Content-Type ไม่ใส่ที่นี่ — ให้ callPeakAPI ตั้งผ่าน options.contentType แยก
   return {
     'Time-Stamp': ts,
@@ -82,7 +94,7 @@ function buildHeaders() {
   };
 }
 
-// ─── Generic API Caller ───────────────────────────────────────────────────────
+// ─── Generic API Caller ─────────────────────────────────────────────────────
 function callPeakAPI(method, path, payload, params) {
   let url = CONFIG.BASE_URL + path;
 
@@ -109,7 +121,11 @@ function callPeakAPI(method, path, payload, params) {
   const text = res.getContentText();
 
   let data;
-  try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    data = { raw: text };
+  }
 
   if (code !== 200) {
     throw new Error(`PEAK API ${method.toUpperCase()} ${path} → HTTP ${code}: ${text}`);
@@ -137,14 +153,13 @@ function callPeakAPI(method, path, payload, params) {
   return data;
 }
 
-// ─── Debug helpers ────────────────────────────────────────────────────────────
 function debugAllinone() {
   const payload = {
     code:         'DEBUG-TEST-001',
     issuedDate:   '20260310',
     dueDate:      '20260310',
     contactCode:  '1752485138',
-    isTaxInvoice: 1,
+    isTaxInvoice: true,
     remark:       'ทดสอบ debug',
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
