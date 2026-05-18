@@ -452,7 +452,7 @@ function debugPart1Row() {
         payments: [{ paymentMethodId: pmtUuid, amount: amt }],
       },
     };
-    Logger.log('─── Step 6: POST allinone ด้วย Postman-correct format ───');
+    Logger.log('─── Step 6: POST allinone ด้วย Postman-correct format (contactId flat) ───');
     Logger.log('Payload E: ' + JSON.stringify(payloadE));
     const resE = UrlFetchApp.fetch(CONFIG.BASE_URL + '/receipts/allinone', {
       method: 'post', headers: buildHeaders(), contentType: 'application/json',
@@ -463,6 +463,44 @@ function debugPart1Row() {
     Logger.log('BODY E: ' + resE.getContentText());
   } else {
     Logger.log('⚠️ ข้าม Step 6: contactUuid=' + contactUuid + ', pmtUuid=' + pmtUuid);
+  }
+
+  // ─── Step 7: รวม nested contact (Step 5) + istaxInvoice + payments UUID (Step 6) ──
+  // Step 5: contact:{id,code} แก้ "Missing Contact Data" → เปลี่ยนเป็น "Missing Payment Data"
+  // Step 6: payments.paymentMethodId UUID ถูกต้อง แต่ใช้ contactId flat → ยัง "Missing Contact Data"
+  // Step 7: รวมทั้งสองเข้าด้วยกัน → ควรได้ 200 หรือ error อื่น
+  if (contactUuid && pmtUuid) {
+    const refF = 'DEBUG-F-' + invCode + '-' + Date.now();
+    const payloadF = {
+      code:         refF,
+      issuedDate:   formatDateForAPI(payDate),
+      dueDate:      formatDateForAPI(payDate),
+      contact:      { id: contactUuid, code: invCode },
+      istaxInvoice: 1,
+      remark:       desc,
+      products: [{
+        accountCode: CONFIG.ACCOUNT_CODE_SALES,
+        description: desc,
+        quantity:    1,
+        price:       amt,
+        vatType:     CONFIG.VAT_TYPE_7,
+      }],
+      paidPayments: {
+        paymentDate: formatDateForAPI(payDate),
+        payments: [{ paymentMethodId: pmtUuid, amount: amt }],
+      },
+    };
+    Logger.log('─── Step 7: POST allinone — nested contact{id,code} + istaxInvoice + payments UUID ───');
+    Logger.log('Payload F: ' + JSON.stringify(payloadF));
+    const resF = UrlFetchApp.fetch(CONFIG.BASE_URL + '/receipts/allinone', {
+      method: 'post', headers: buildHeaders(), contentType: 'application/json',
+      payload: JSON.stringify({ PeakReceipts: { receipts: [payloadF] } }),
+      muteHttpExceptions: true,
+    });
+    Logger.log('HTTP F: ' + resF.getResponseCode());
+    Logger.log('BODY F: ' + resF.getContentText());
+  } else {
+    Logger.log('⚠️ ข้าม Step 7: contactUuid=' + contactUuid + ', pmtUuid=' + pmtUuid);
   }
 }
 
