@@ -603,6 +603,46 @@ function debugPart1Row() {
       Logger.log('BODY 9-' + ac + ': ' + resY.getContentText());
     }
   }
+
+  // ─── Step 10: taxStatus 0 vs 1 — ค่างวด 2300 รวม VAT แล้ว (2461 = 2300+7%) ──
+  // Step 9: ทุก code valid แต่ "net amount must equal payment 2461 != 2300"
+  // ค่างวดในตาราง = ยอดที่ลูกค้าจ่ายจริง (รวม VAT แล้ว) → taxStatus 1 (รวมภาษี)
+  if (contactUuid && pmtUuid) {
+    const variants = [
+      { name: '10a: taxStatus=1 (รวมภาษี)', taxStatus: 1 },
+      { name: '10b: taxStatus=0 + payment 2461', taxStatus: 0, payAmt: 2461 },
+    ];
+    for (const v of variants) {
+      const refZ = 'DEBUG-TS-' + (v.taxStatus) + '-' + Date.now();
+      const payAmt = v.payAmt || amt;
+      const payloadZ = {
+        code:         refZ,
+        issuedDate:   formatDateForAPI(payDate),
+        dueDate:      formatDateForAPI(payDate),
+        contact:      { id: contactUuid, code: invCode },
+        istaxInvoice: 1,
+        taxStatus:    v.taxStatus,
+        remark:       desc,
+        products: [{
+          accountCode: '410101',
+          description: desc, quantity: 1, price: amt, vatType: CONFIG.VAT_TYPE_7,
+        }],
+        paidPayments: {
+          paymentDate: formatDateForAPI(payDate),
+          payments: [{ paymentMethod: { id: pmtUuid, code: 'CSH001' }, amount: payAmt }],
+        },
+      };
+      Logger.log('─── Step ' + v.name + ' ───');
+      Logger.log('Payload: ' + JSON.stringify(payloadZ));
+      const resZ = UrlFetchApp.fetch(CONFIG.BASE_URL + '/receipts/allinone', {
+        method: 'post', headers: buildHeaders(), contentType: 'application/json',
+        payload: JSON.stringify({ PeakReceipts: { receipts: [payloadZ] } }),
+        muteHttpExceptions: true,
+      });
+      Logger.log('HTTP ' + v.name + ': ' + resZ.getResponseCode());
+      Logger.log('BODY ' + v.name + ': ' + resZ.getContentText());
+    }
+  }
 }
 
 // ─── Part 1 ส่วนเสริม: ค่าบริการเพิ่มเติม (อ่านจาก Sum sheet) ────────────────
