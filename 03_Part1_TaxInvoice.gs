@@ -29,6 +29,12 @@ function runPart1_TaxInvoice(sheetName) {
 
   toast(`⏳ Part 1 — ${sheetName}`, 'FinFin');
 
+  // ─── Time guard: GAS hard limit = 6 min. หยุดที่ 5 min เผื่อ cleanup ────────
+  const startMs   = Date.now();
+  const MAX_RUN_MS = 5 * 60 * 1000;
+  const timeUp = () => (Date.now() - startMs) > MAX_RUN_MS;
+  let stoppedEarly = false;
+
   const batchA = [];     // Case A allinone
   const batchB_tax = []; // Case B tax invoice
   const batchB_rec = []; // Case B receipt
@@ -109,10 +115,12 @@ function runPart1_TaxInvoice(sheetName) {
   // /receipts/allinone และ /invoices/queue ต้องการ contactId (UUID) ไม่ใช่ contactCode
   // /receipts/queue ใช้ contactCode ปกติ — batchB_rec ไม่ต้องแก้
   // ถ้า contactId หาไม่ได้ (contact POST ล้มเหลว) → clear PROCESSING แล้ว skip แทนที่จะ submit แล้วได้ error
+  // มี time guard เพราะ lazy GET อาจใช้เวลามากถ้า UUIDs ยังไม่อยู่ใน cache
   const resolvedA    = [];
   const resolvedBtax = [];
 
   for (const item of batchA) {
+    if (timeUp()) { stoppedEarly = true; break; }
     const cid = getContactId_(item.invCode);
     if (cid) {
       item.payload.contactId = cid;
@@ -124,19 +132,22 @@ function runPart1_TaxInvoice(sheetName) {
       countSkip++;
     }
   }
-  for (const item of batchB_tax) {
-    const cid = getContactId_(item.invCode);
-    if (cid) {
-      item.payload.contactId = cid;
-      delete item.payload.contactCode;
-      resolvedBtax.push(item);
-    } else {
-      writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
-      logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'SKIP', '', 'ไม่พบ contactId — รัน Sync Contacts ก่อนแล้วลองใหม่');
-      countSkip++;
-      // batchB_rec มีแถวเดียวกัน — clear ด้วย
-      const recItem = batchB_rec.find(r => r.rowIndex === item.rowIndex);
-      if (recItem) writeReceiptCell_(sheet, recItem.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
+  if (!stoppedEarly) {
+    for (const item of batchB_tax) {
+      if (timeUp()) { stoppedEarly = true; break; }
+      const cid = getContactId_(item.invCode);
+      if (cid) {
+        item.payload.contactId = cid;
+        delete item.payload.contactCode;
+        resolvedBtax.push(item);
+      } else {
+        writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
+        logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'SKIP', '', 'ไม่พบ contactId — รัน Sync Contacts ก่อนแล้วลองใหม่');
+        countSkip++;
+        // batchB_rec มีแถวเดียวกัน — clear ด้วย
+        const recItem = batchB_rec.find(r => r.rowIndex === item.rowIndex);
+        if (recItem) writeReceiptCell_(sheet, recItem.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
+      }
     }
   }
 
@@ -144,6 +155,7 @@ function runPart1_TaxInvoice(sheetName) {
 
   // ─── Submit Case A (one by one) ───────────────────────────────────────────
   for (const item of resolvedA) {
+    if (timeUp()) { stoppedEarly = true; break; }
     try {
       const res = callPeakAPI('post', '/receipts/allinone', { PeakReceipts: { receipts: [item.payload] } });
       const rec = (res.PeakReceipts && res.PeakReceipts.receipts && res.PeakReceipts.receipts[0]) || res;
@@ -159,8 +171,9 @@ function runPart1_TaxInvoice(sheetName) {
   }
 
   // ─── Submit Case B (queue) ────────────────────────────────────────────────
-  if (resolvedBtax.length > 0) {
+  if (!stoppedEarly && resolvedBtax.length > 0) {
     for (const chunk of chunkArray(resolvedBtax, CONFIG.BATCH_SIZE)) {
+      if (timeUp()) { stoppedEarly = true; break; }
       try {
         const res = callPeakAPI('post', '/invoices/queue',
           { PeakInvoices: { invoices: chunk.map(x => x.payload) } });
@@ -181,8 +194,12 @@ function runPart1_TaxInvoice(sheetName) {
       }
     }
   }
-  if (batchB_rec.length > 0) {
-    for (const chunk of chunkArray(batchB_rec, CONFIG.BATCH_SIZE)) {
+  // batchB_rec: ส่งเฉพาะแถวที่ tax invoice ผ่าน (resolvedBtax) — แถวที่ skip ไปแล้วไม่ต้องส่ง
+  const resolvedTaxRows = new Set(resolvedBtax.map(t => t.rowIndex));
+  const resolvedBrec = batchB_rec.filter(r => resolvedTaxRows.has(r.rowIndex));
+  if (!stoppedEarly && resolvedBrec.length > 0) {
+    for (const chunk of chunkArray(resolvedBrec, CONFIG.BATCH_SIZE)) {
+      if (timeUp()) { stoppedEarly = true; break; }
       try {
         const res = callPeakAPI('post', '/receipts/queue',
           { PeakReceipts: { receipts: chunk.map(x => x.payload) } });
@@ -202,7 +219,11 @@ function runPart1_TaxInvoice(sheetName) {
     }
   }
 
-  const summary = `Part 1 เสร็จ — Case A: ${countA}, Queue B: ${countB}, Skip: ${countSkip}, Error: ${countError}`;
+  const elapsed = Math.round((Date.now() - startMs) / 1000);
+  const tail = stoppedEarly
+    ? ` ⚠️ หยุดที่ ${elapsed}s ก่อนหมดเวลา — รันใหม่เพื่อทำต่อ`
+    : ` (${elapsed}s)`;
+  const summary = `Part 1 เสร็จ — Case A: ${countA}, Queue B: ${countB}, Skip: ${countSkip}, Error: ${countError}${tail}`;
   toast(summary, 'FinFin', 10);
   Logger.log(summary);
   return summary;
