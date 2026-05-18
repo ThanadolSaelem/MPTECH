@@ -318,7 +318,7 @@ function chunkArray(arr, size) {
 
 /**
  * ทดสอบ allinone กับ 1 แถวจริงจาก Receipt sheet แล้ว log raw response
- * ใช้เพื่อ diagnose ว่า PEAK ตอบอะไรกันแน่
+ * Flow: (1) GET contact, (2) POST allinone ด้วย contactCode, (3) ถ้า fail → retry ด้วย contactId UUID
  */
 function debugPart1Row() {
   const sheetName = getCurrentReceiptSheetName();
@@ -337,23 +337,53 @@ function debugPart1Row() {
   const payDate = toDate(row[CONFIG.RECEIPT_COL.PAY_DATE]);
   const inst    = String(row[CONFIG.RECEIPT_COL.INST_TYPE] || '').trim();
   const desc    = buildReceiptDescription_(inst, invCode);
-  const ref     = 'DEBUG-' + invCode + '-' + Date.now();
 
-  Logger.log(`Row ${dataRowIndex}: invCode=${invCode}, amt=${amt}, payDate=${payDate}`);
+  Logger.log(`▼ Row ${dataRowIndex}: invCode=${invCode}, amt=${amt}, payDate=${payDate}`);
 
-  const payload = buildAllinonePayload(invCode, payDate, amt, desc, CONFIG.PMT_TRANSFER, ref);
-  Logger.log('Payload: ' + JSON.stringify(payload, null, 2));
+  // ─── Step 1: ตรวจ contact ใน PEAK ────────────────────────────────────────
+  Logger.log('─── Step 1: GET /contacts?code=' + invCode + ' ───');
+  let contactUuid = null;
+  try {
+    const cRes = callPeakAPI('get', '/contacts', null, { code: invCode });
+    const cs = cRes && cRes.PeakContacts && cRes.PeakContacts.contacts;
+    const c = Array.isArray(cs) ? cs[0] : cs;
+    contactUuid = c && c.id;
+    Logger.log('Contact found: ' + JSON.stringify({ id: c && c.id, code: c && c.code, name: c && c.name }));
+  } catch (e) {
+    Logger.log('Contact GET error: ' + e.message);
+  }
 
-  const url = CONFIG.BASE_URL + '/receipts/allinone';
-  const res = UrlFetchApp.fetch(url, {
-    method: 'post',
-    headers: buildHeaders(),
-    contentType: 'application/json',
-    payload: JSON.stringify({ PeakReceipts: { receipts: [payload] } }),
+  // ─── Step 2: POST allinone ด้วย contactCode ──────────────────────────────
+  const refA = 'DEBUG-A-' + invCode + '-' + Date.now();
+  const payloadA = buildAllinonePayload(invCode, payDate, amt, desc, CONFIG.PMT_TRANSFER, refA);
+  Logger.log('─── Step 2: POST allinone ด้วย contactCode ───');
+  Logger.log('Payload A: ' + JSON.stringify(payloadA));
+  const resA = UrlFetchApp.fetch(CONFIG.BASE_URL + '/receipts/allinone', {
+    method: 'post', headers: buildHeaders(), contentType: 'application/json',
+    payload: JSON.stringify({ PeakReceipts: { receipts: [payloadA] } }),
     muteHttpExceptions: true,
   });
-  Logger.log('HTTP: ' + res.getResponseCode());
-  Logger.log('BODY: ' + res.getContentText());
+  Logger.log('HTTP A: ' + resA.getResponseCode());
+  Logger.log('BODY A: ' + resA.getContentText());
+
+  // ─── Step 3: ถ้ามี UUID → retry ด้วย contactId ──────────────────────────
+  if (contactUuid) {
+    const refB = 'DEBUG-B-' + invCode + '-' + Date.now();
+    const payloadB = buildAllinonePayload(invCode, payDate, amt, desc, CONFIG.PMT_TRANSFER, refB);
+    delete payloadB.contactCode;
+    payloadB.contactId = contactUuid;
+    Logger.log('─── Step 3: POST allinone ด้วย contactId (UUID) ───');
+    Logger.log('Payload B: ' + JSON.stringify(payloadB));
+    const resB = UrlFetchApp.fetch(CONFIG.BASE_URL + '/receipts/allinone', {
+      method: 'post', headers: buildHeaders(), contentType: 'application/json',
+      payload: JSON.stringify({ PeakReceipts: { receipts: [payloadB] } }),
+      muteHttpExceptions: true,
+    });
+    Logger.log('HTTP B: ' + resB.getResponseCode());
+    Logger.log('BODY B: ' + resB.getContentText());
+  } else {
+    Logger.log('⚠️ ไม่มี contactUuid → ข้าม Step 3 (ต้อง POST /contacts/ ก่อน)');
+  }
 }
 
 // ─── Part 1 ส่วนเสริม: ค่าบริการเพิ่มเติม (อ่านจาก Sum sheet) ────────────────
