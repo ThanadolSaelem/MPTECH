@@ -231,7 +231,7 @@ function buildAllinonePayload(invCode, payDate, amount, desc, payType, ref) {
     issuedDate:   formatDateForAPI(payDate),
     dueDate:      formatDateForAPI(payDate),
     contactCode:  String(invCode),
-    isTaxInvoice: true,
+    isTaxInvoice: 1,
     remark:       desc,
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
@@ -253,7 +253,7 @@ function buildTaxInvoiceOnlyPayload(invCode, taxDate, amount, desc, ref) {
     issuedDate:   formatDateForAPI(taxDate),
     dueDate:      formatDateForAPI(taxDate),
     contactCode:  String(invCode),
-    isTaxInvoice: true,
+    isTaxInvoice: 1,
     remark:       desc,
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
@@ -271,7 +271,7 @@ function buildReceiptOnlyPayload(invCode, payDate, amount, desc, payType, ref) {
     issuedDate:   formatDateForAPI(payDate),
     dueDate:      formatDateForAPI(payDate),
     contactCode:  String(invCode),
-    isTaxInvoice: false,
+    isTaxInvoice: 0,
     remark:       desc,
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,

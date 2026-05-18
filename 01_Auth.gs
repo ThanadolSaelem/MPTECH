@@ -1,18 +1,8 @@
 /**
  * FinFin Automation — Authentication & PEAK API Headers
- *
- * PEAK Auth Flow:
- *  1. สร้าง Time-Stamp (yyyyMMddHHmmss)
- *  2. สร้าง Time-Signature = HMAC-SHA1(Time-Stamp, CONNECT_ID) → hex
- *  3. POST /ClientToken → ได้ Client-Token (อายุ 24 ชม.)
- *  4. แนบ headers ทุก request: Time-Stamp, Time-Signature, Client-Token, User-Token
  */
 
 // ─── Time-Stamp ─────────────────────────────────────────────────────────────
-/**
- * สร้าง timestamp ในรูปแบบ yyyyMMddHHmmss (UTC — ตาม PEAK server)
- * @returns {string}
- */
 function buildTimeStamp() {
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
@@ -27,13 +17,6 @@ function buildTimeStamp() {
 }
 
 // ─── HMAC-SHA1 Signature ─────────────────────────────────────────────────────
-/**
- * คำนวณ HMAC-SHA1(message, key) → lowercase hex string
- * ใช้ GAS built-in Utilities.computeHmacSignature
- * @param {string} message
- * @param {string} key
- * @returns {string}
- */
 function hmacSha1Hex(message, key) {
   const bytes = Utilities.computeHmacSignature(
     Utilities.MacAlgorithm.HMAC_SHA_1,
@@ -44,11 +27,6 @@ function hmacSha1Hex(message, key) {
 }
 
 // ─── Client Token (cached 23 ชม.) ────────────────────────────────────────────
-/**
- * ดึง Client-Token จาก cache ใน ScriptProperties
- * ถ้าหมดอายุหรือยังไม่มี → เรียก /ClientToken ใหม่
- * @returns {string} client token
- */
 function getClientToken() {
   const props = PropertiesService.getScriptProperties();
   const cached = props.getProperty('PEAK_CLIENT_TOKEN');
@@ -56,9 +34,7 @@ function getClientToken() {
 
   if (cached && cachedAt) {
     const age = Date.now() - Number(cachedAt);
-    if (age < 23 * 60 * 60 * 1000) {
-      return cached;
-    }
+    if (age < 23 * 60 * 60 * 1000) return cached;
   }
 
   const ts = buildTimeStamp();
@@ -68,10 +44,7 @@ function getClientToken() {
   const options = {
     method: 'post',
     contentType: 'application/json',
-    headers: {
-      'Time-Stamp': ts,
-      'Time-Signature': sig,
-    },
+    headers: { 'Time-Stamp': ts, 'Time-Signature': sig },
     payload: JSON.stringify({
       PeakClientToken: {
         connectId: CONFIG.CONNECT_ID,
@@ -100,7 +73,6 @@ function buildHeaders() {
   const ts = buildTimeStamp();
   const sig = hmacSha1Hex(ts, CONFIG.CONNECT_ID);
   const clientToken = getClientToken();
-
   // Content-Type ไม่ใส่ที่นี่ — ให้ callPeakAPI ตั้งผ่าน options.contentType แยก
   return {
     'Time-Stamp': ts,
@@ -137,11 +109,7 @@ function callPeakAPI(method, path, payload, params) {
   const text = res.getContentText();
 
   let data;
-  try {
-    data = JSON.parse(text);
-  } catch (e) {
-    data = { raw: text };
-  }
+  try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
 
   if (code !== 200) {
     throw new Error(`PEAK API ${method.toUpperCase()} ${path} → HTTP ${code}: ${text}`);
@@ -169,16 +137,14 @@ function callPeakAPI(method, path, payload, params) {
   return data;
 }
 
-/**
- * ทดสอบ receipts/allinone กับ 1 row และ log response เต็มๆ
- */
+// ─── Debug helpers ────────────────────────────────────────────────────────────
 function debugAllinone() {
   const payload = {
     code:         'DEBUG-TEST-001',
     issuedDate:   '20260310',
     dueDate:      '20260310',
     contactCode:  '1752485138',
-    isTaxInvoice: true,
+    isTaxInvoice: 1,
     remark:       'ทดสอบ debug',
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
