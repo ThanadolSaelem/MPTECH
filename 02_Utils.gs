@@ -450,6 +450,30 @@ function cleanupStaleQueueEntries(maxAgeHours) {
 }
 
 /**
+ * Pre-flight checks — เรียกตอนเริ่มทุก Part runner
+ *   1. ลบ queue เก่ากว่า 24 ชม. อัตโนมัติ
+ *   2. เตือนถ้า ScriptProperties usage > 80%
+ *   3. Throw ถ้า > 95% (รันต่อไม่ได้แน่ — บอกให้ user ล้างก่อน)
+ */
+function preFlightChecks_() {
+  const cleaned = cleanupStaleQueueEntries(24);
+  if (cleaned > 0) Logger.log(`Pre-flight: cleaned ${cleaned} stale queue entries`);
+
+  const props = PropertiesService.getScriptProperties().getProperties();
+  const totalBytes = Object.values(props).reduce((s, v) => s + v.length, 0);
+  const usagePct = (totalBytes / (500 * 1024)) * 100;
+
+  if (usagePct > 95) {
+    throw new Error(`ScriptProperties เต็ม (${usagePct.toFixed(1)}%) — รัน clearAllQueueEntries() แล้วลองใหม่`);
+  }
+  if (usagePct > 80) {
+    const msg = `⚠️ ScriptProperties ${usagePct.toFixed(1)}% — รัน inspectScriptProperties() เพื่อตรวจ`;
+    Logger.log(msg);
+    toast(msg, 'FinFin', 10);
+  }
+}
+
+/**
  * ลบ queue entries ทั้งหมด (nuclear option ถ้า quota เต็ม)
  */
 function clearAllQueueEntries() {
