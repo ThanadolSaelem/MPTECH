@@ -17,6 +17,7 @@
  */
 
 function runPart2_Invoice(sheetName) {
+  preFlightChecks_();
   sheetName = sheetName || getCurrentSumSheetName();
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
   const sheet = ss.getSheetByName(sheetName);
