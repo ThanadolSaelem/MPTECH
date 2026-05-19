@@ -19,6 +19,7 @@
 // ─── Main Entry Point ─────────────────────────────────────────────────────────
 
 function runPart1_TaxInvoice(sheetName) {
+  preFlightChecks_();
   sheetName = sheetName || getCurrentReceiptSheetName();
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
   const sheet = ss.getSheetByName(sheetName);
@@ -403,6 +404,7 @@ function debugPart1Row() {
 // ─── Part 1 ส่วนเสริม: ค่าบริการเพิ่มเติม (อ่านจาก Sum sheet) ────────────────
 
 function runPart1_ServiceFee(sheetName) {
+  preFlightChecks_();
   sheetName = sheetName || getCurrentSumSheetName();
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
   const sheet = ss.getSheetByName(sheetName);
