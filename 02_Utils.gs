@@ -404,6 +404,68 @@ function deleteQueueEntry(key) {
   PropertiesService.getScriptProperties().deleteProperty(key);
 }
 
+// ─── ScriptProperties Diagnostics & Cleanup ──────────────────────────────────
+
+/**
+ * แสดงขนาดของ ScriptProperties แต่ละ key (KB)
+ * รันใน Apps Script editor เพื่อดูว่าอะไรกินที่
+ */
+function inspectScriptProperties() {
+  const props = PropertiesService.getScriptProperties().getProperties();
+  const entries = Object.entries(props).map(([k, v]) => ({
+    key: k,
+    sizeKB: (v.length / 1024).toFixed(2),
+  }));
+  entries.sort((a, b) => Number(b.sizeKB) - Number(a.sizeKB));
+  const total = entries.reduce((s, e) => s + Number(e.sizeKB), 0);
+  Logger.log(`Total: ${total.toFixed(2)} KB / 500 KB (${(total / 5).toFixed(1)}%)`);
+  entries.slice(0, 30).forEach(e => Logger.log(`${e.sizeKB.padStart(8)} KB  ${e.key}`));
+  if (entries.length > 30) Logger.log(`... and ${entries.length - 30} more`);
+}
+
+/**
+ * ลบ queue entries เก่ากว่า N ชั่วโมง (default 24h)
+ */
+function cleanupStaleQueueEntries(maxAgeHours) {
+  maxAgeHours = maxAgeHours || 24;
+  const cutoff = Date.now() - maxAgeHours * 3600000;
+  const props = PropertiesService.getScriptProperties();
+  const all = props.getProperties();
+  let removed = 0;
+  for (const [k, v] of Object.entries(all)) {
+    if (!k.startsWith('QUEUE_')) continue;
+    try {
+      const obj = JSON.parse(v);
+      if (Number(obj.savedAt || 0) < cutoff) {
+        props.deleteProperty(k);
+        removed++;
+      }
+    } catch (e) {
+      props.deleteProperty(k);
+      removed++;
+    }
+  }
+  Logger.log(`Cleaned ${removed} stale queue entries (>${maxAgeHours}h old)`);
+  return removed;
+}
+
+/**
+ * ลบ queue entries ทั้งหมด (nuclear option ถ้า quota เต็ม)
+ */
+function clearAllQueueEntries() {
+  const props = PropertiesService.getScriptProperties();
+  const all = props.getProperties();
+  let removed = 0;
+  for (const k of Object.keys(all)) {
+    if (k.startsWith('QUEUE_')) {
+      props.deleteProperty(k);
+      removed++;
+    }
+  }
+  Logger.log(`Cleared ${removed} queue entries`);
+  return removed;
+}
+
 // ─── Invoice Payload Helpers ──────────────────────────────────────────────────
 
 /**
