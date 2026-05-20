@@ -50,7 +50,11 @@ function runPart4_CreditNote() {
   const data = getSheetData(sheet);
   let countOk = 0, countSkip = 0, countError = 0;
 
+  const guard = makeTimeGuard_(5);
+  let stoppedEarly = false, quotaHit = false;
+
   for (let i = 0; i < data.length; i++) {
+    if (guard.expired()) { stoppedEarly = true; break; }
     const row = data[i];
 
     // ─── Guard ────────────────────────────────────────────────────────────
@@ -116,12 +120,27 @@ function runPart4_CreditNote() {
 
     } catch (e) {
       writeCell(sheet, i, CONFIG.RETURN_COL.Q, '');  // ลบ PROCESSING
+      if (classifyError_(e) === 'quota') {
+        logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
+        quotaHit = true;
+        stoppedEarly = true;
+        break;
+      }
       logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'ERROR', '', e.message);
       countError++;
     }
   }
 
-  const summary = `Part 4 เสร็จ — สร้างแล้ว: ${countOk}, ข้าม: ${countSkip}, Error: ${countError}`;
+  let tail = '';
+  if (stoppedEarly) {
+    scheduleContinuation_('runPart4_CreditNote', '', countOk > 0);
+    tail = quotaHit
+      ? ' ⏸️ หยุดชั่วคราว (โควตา) — ทำต่ออัตโนมัติใน 15 นาที'
+      : ' ⏸️ หยุดกันหมดเวลา — ทำต่ออัตโนมัติใน 15 นาที';
+  } else {
+    clearContinuation_('runPart4_CreditNote');
+  }
+  const summary = `Part 4 เสร็จ — สร้างแล้ว: ${countOk}, ข้าม: ${countSkip}, Error: ${countError}${tail}`;
   toast(summary, 'FinFin', 10);
   Logger.log(summary);
   return summary;

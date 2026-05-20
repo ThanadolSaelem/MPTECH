@@ -199,7 +199,8 @@ function setupPollTrigger() {
 function removeAllTriggers() {
   const triggers = ScriptApp.getProjectTriggers();
   triggers.forEach(t => ScriptApp.deleteTrigger(t));
-  showResult_(`ลบ Trigger ทั้งหมด ${triggers.length} ตัวแล้ว`);
+  const cleared = clearAllContinuations_();
+  showResult_(`ลบ Trigger ทั้งหมด ${triggers.length} ตัว และงานค้าง (continuation) ${cleared} รายการแล้ว`);
 }
 
 function removeTriggerByName_(funcName) {
