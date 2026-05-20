@@ -529,6 +529,178 @@ function tryRecoverPeakDoc_(endpoint, code) {
   return null;
 }
 
+// ─── Quota Handling & Resumable Execution ────────────────────────────────────
+// Production: PEAK ไม่มี Transaction Limit (เป็นข้อจำกัดของ UAT sandbox เท่านั้น)
+// โควตาที่ต้องรับมือจริง = GAS execution time 6 นาที + rate limit ชั่วคราว
+// กลยุทธ์: runner หยุดเองก่อนหมดเวลา/เจอ quota → ตั้ง trigger ทำต่ออัตโนมัติ
+// runner ทุกตัว idempotent (ข้ามแถวที่มีเลขเอกสารแล้ว) จึง resume ได้ปลอดภัย
+
+/**
+ * ตรวจว่า error เกิดจากโควตา/ลิมิตหมด — ต้องหยุดทั้ง run แล้วทำต่อภายหลัง
+ * (PEAK transaction limit / rate limit 429 / GAS service quota)
+ */
+function isQuotaError_(e) {
+  const msg = ((e && e.message) ? e.message : String(e)).toLowerCase();
+  return msg.includes('transaction limit')
+      || msg.includes('limit exceeded')
+      || msg.includes('quota')
+      || msg.includes('rate limit')
+      || msg.includes('429')
+      || msg.includes('too many requests')
+      || msg.includes('invoked too many times');
+}
+
+/**
+ * จัดประเภท error → กำหนดวิธีรับมือ
+ *   'duplicate' — เอกสารมีใน PEAK แล้ว (error 315) → recover/mark
+ *   'quota'     — โควตา/ลิมิตหมด → หยุดทั้ง run, ตั้ง trigger ทำต่อ
+ *   'transient' — network/5xx ชั่วคราว → ปล่อยเซลล์ว่าง, รันรอบหน้า retry เอง
+ *   'permanent' — ข้อมูลผิด (400 ฯลฯ) → log ERROR
+ * @returns {'duplicate'|'quota'|'transient'|'permanent'}
+ */
+function classifyError_(e) {
+  if (isDuplicateCodeError_(e)) return 'duplicate';
+  if (isQuotaError_(e))         return 'quota';
+  const msg = ((e && e.message) ? e.message : String(e)).toLowerCase();
+  if (msg.includes('http 500') || msg.includes('http 502') || msg.includes('http 503')
+   || msg.includes('http 504') || msg.includes('timeout') || msg.includes('timed out')
+   || msg.includes('unavailable') || msg.includes('network') || msg.includes('dns error')) {
+    return 'transient';
+  }
+  return 'permanent';
+}
+
+/**
+ * สร้าง time guard กัน GAS hard limit 6 นาที
+ * @param {number} [maxMinutes]  default 5 (เผื่อ 1 นาทีไว้ cleanup)
+ * @returns {{ expired: function(): boolean, elapsedSec: function(): number }}
+ */
+function makeTimeGuard_(maxMinutes) {
+  const startMs = Date.now();
+  const maxMs   = (maxMinutes || 5) * 60 * 1000;
+  return {
+    expired:    () => (Date.now() - startMs) > maxMs,
+    elapsedSec: () => Math.round((Date.now() - startMs) / 1000),
+  };
+}
+
+// จำนวนครั้งสูงสุดที่ทำต่ออัตโนมัติได้แบบไม่คืบหน้า (กัน loop ติดโควตาถาวร)
+const MAX_CONTINUATION_ATTEMPTS_ = 6;
+
+/**
+ * Whitelist + dispatch — เรียก runner ตามชื่อ (กัน trigger เรียก function อื่น)
+ */
+function dispatchRunner_(functionName, sheetName) {
+  switch (functionName) {
+    case 'runPart1_TaxInvoice': return runPart1_TaxInvoice(sheetName);
+    case 'runPart1_ServiceFee': return runPart1_ServiceFee(sheetName);
+    case 'runPart2_Invoice':    return runPart2_Invoice(sheetName);
+    case 'runPart3_LateFee':    return runPart3_LateFee(sheetName);
+    case 'runPart4_CreditNote': return runPart4_CreditNote();
+    default: throw new Error('runner ไม่รู้จัก: ' + functionName);
+  }
+}
+
+/**
+ * ตั้ง one-time trigger ให้ทำงานต่อจากที่ค้างไว้
+ * @param {string}  functionName
+ * @param {string}  sheetName
+ * @param {boolean} madeProgress  true = run นี้สร้างเอกสารได้บ้าง → รีเซ็ตตัวนับ
+ *                                false = ไม่คืบหน้า (ติดโควตา) → เพิ่มตัวนับเข้าหา cap
+ * @param {number}  [delayMinutes]  default 15
+ */
+function scheduleContinuation_(functionName, sheetName, madeProgress, delayMinutes) {
+  delayMinutes = delayMinutes || 15;
+  const props = PropertiesService.getScriptProperties();
+  const key   = 'CONTINUATION_' + functionName;
+
+  let attempt = 0;
+  if (!madeProgress) {
+    const prev = props.getProperty(key);
+    if (prev) { try { attempt = Number(JSON.parse(prev).attempt) || 0; } catch (e) {} }
+  }
+  attempt++;  // madeProgress → เริ่มนับใหม่จาก 1
+
+  if (attempt > MAX_CONTINUATION_ATTEMPTS_) {
+    props.deleteProperty(key);
+    const msg = `❌ ${functionName} หยุดทำต่ออัตโนมัติ (ลอง ${MAX_CONTINUATION_ATTEMPTS_} ครั้งไม่คืบหน้า) — น่าจะติดโควตา ตรวจ PEAK แล้วรันเองอีกครั้ง`;
+    Logger.log(msg);
+    toast(msg, 'FinFin', 15);
+    return;
+  }
+
+  props.setProperty(key, JSON.stringify({
+    functionName, sheetName: sheetName || '', attempt, scheduledAt: Date.now(),
+  }));
+  ensureResumeTrigger_(delayMinutes);
+  Logger.log(`continuation #${attempt}: ${functionName}("${sheetName}") อีก ${delayMinutes} นาที`);
+}
+
+/**
+ * เคลียร์ continuation context — เรียกเมื่อ runner ทำงานครบสมบูรณ์
+ */
+function clearContinuation_(functionName) {
+  PropertiesService.getScriptProperties().deleteProperty('CONTINUATION_' + functionName);
+}
+
+/**
+ * เคลียร์ continuation context ทั้งหมด (เรียกตอนลบ trigger ทั้งหมด)
+ */
+function clearAllContinuations_() {
+  const props = PropertiesService.getScriptProperties();
+  let removed = 0;
+  for (const k of Object.keys(props.getProperties())) {
+    if (k.startsWith('CONTINUATION_')) { props.deleteProperty(k); removed++; }
+  }
+  return removed;
+}
+
+/**
+ * สร้าง resume trigger ตัวเดียว (ลบของเดิมก่อนเสมอ กัน trigger ซ้อน)
+ */
+function ensureResumeTrigger_(delayMinutes) {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'resumePendingWork_')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('resumePendingWork_')
+    .timeBased()
+    .after((delayMinutes || 15) * 60 * 1000)
+    .create();
+}
+
+/**
+ * เรียกจาก time-based trigger — ทำงานที่ค้างไว้ทั้งหมดต่อ
+ * runner แต่ละตัวจะตั้ง continuation รอบถัดไปเอง (ถ้ายังไม่เสร็จ)
+ */
+function resumePendingWork_() {
+  const props = PropertiesService.getScriptProperties();
+
+  // ลบ trigger ที่เพิ่งยิง (self-cleanup)
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'resumePendingWork_')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+
+  const all = props.getProperties();
+  const contexts = Object.keys(all)
+    .filter(k => k.startsWith('CONTINUATION_'))
+    .map(k => { try { return JSON.parse(all[k]); } catch (e) { props.deleteProperty(k); return null; } })
+    .filter(Boolean);
+
+  for (const ctx of contexts) {
+    try {
+      Logger.log(`resume: ${ctx.functionName}("${ctx.sheetName}")`);
+      dispatchRunner_(ctx.functionName, ctx.sheetName || undefined);
+    } catch (e) {
+      Logger.log(`resume error ${ctx.functionName}: ${e.message}`);
+      scheduleContinuation_(ctx.functionName, ctx.sheetName, false);
+    }
+  }
+
+  // ยังมีงานค้าง → ตั้ง trigger รอบถัดไป
+  const stillPending = Object.keys(props.getProperties()).some(k => k.startsWith('CONTINUATION_'));
+  if (stillPending) ensureResumeTrigger_(15);
+}
+
 // ─── Invoice Payload Helpers ──────────────────────────────────────────────────
 
 /**

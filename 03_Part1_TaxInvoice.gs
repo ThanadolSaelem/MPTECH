@@ -35,6 +35,7 @@ function runPart1_TaxInvoice(sheetName) {
   const MAX_RUN_MS = 5 * 60 * 1000;
   const timeUp = () => (Date.now() - startMs) > MAX_RUN_MS;
   let stoppedEarly = false;
+  let quotaHit = false;
 
   // ─── First pass: collect raw items (no payloads yet) ─────────────────────
   const rawA    = [];  // Case A: allinone (payDate < dueDate)
@@ -175,7 +176,8 @@ function runPart1_TaxInvoice(sheetName) {
       logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'SUCCESS', docNo, 'Case A');
       countA++;
     } catch (e) {
-      if (isDuplicateCodeError_(e)) {
+      const kind = classifyError_(e);
+      if (kind === 'duplicate') {
         // Doc already exists in PEAK from a previous run — try to recover doc number
         const recovered = tryRecoverPeakDoc_('/receipts', item.ref);
         if (recovered) {
@@ -188,6 +190,13 @@ function runPart1_TaxInvoice(sheetName) {
           logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'WARN', CONFIG.DUPLICATE_MARKER,
             'เอกสารมีใน PEAK แล้ว — ค้นหาเลขที่ใน PEAK แล้วอัปเดต Col PEAK_DOC ด้วยตนเอง');
         }
+      } else if (kind === 'quota') {
+        // โควตา/ลิมิตหมด — เคลียร์เซลล์ row นี้ (ให้รอบหน้าทำต่อ) แล้วหยุดทั้ง run
+        writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
+        logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
+        quotaHit = true;
+        stoppedEarly = true;
+        break;
       } else {
         writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
         logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'ERROR', '', e.message);
@@ -215,6 +224,12 @@ function runPart1_TaxInvoice(sheetName) {
         countB += chunk.length;
       } catch (e) {
         chunk.forEach(x => writeReceiptCell_(sheet, x.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, ''));
+        if (classifyError_(e) === 'quota') {
+          logEntry('Part1', sheetName, -1, 'BATCH', 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
+          quotaHit = true;
+          stoppedEarly = true;
+          break;
+        }
         logEntry('Part1', sheetName, -1, 'BATCH', 'ERROR', '', `Case B Tax: ${e.message}`);
         countError += chunk.length;
       }
@@ -248,6 +263,12 @@ function runPart1_TaxInvoice(sheetName) {
           })));
         logEntry('Part1', sheetName, -1, 'BATCH', 'QUEUED', queueId, `Case B Rec ${chunk.length}`);
       } catch (e) {
+        if (classifyError_(e) === 'quota') {
+          logEntry('Part1', sheetName, -1, 'BATCH', 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
+          quotaHit = true;
+          stoppedEarly = true;
+          break;
+        }
         logEntry('Part1', sheetName, -1, 'BATCH', 'ERROR', '', `Case B Rec: ${e.message}`);
         countError += chunk.length;
       }
@@ -255,9 +276,16 @@ function runPart1_TaxInvoice(sheetName) {
   }
 
   const elapsed = Math.round((Date.now() - startMs) / 1000);
-  const tail = stoppedEarly
-    ? ` ⚠️ หยุดที่ ${elapsed}s ก่อนหมดเวลา — รันใหม่เพื่อทำต่อ`
-    : ` (${elapsed}s)`;
+  let tail;
+  if (stoppedEarly) {
+    scheduleContinuation_('runPart1_TaxInvoice', sheetName, (countA + countB) > 0);
+    tail = quotaHit
+      ? ` ⏸️ หยุดชั่วคราว (โควตา PEAK) — ระบบจะทำต่ออัตโนมัติใน 15 นาที`
+      : ` ⏸️ หยุดที่ ${elapsed}s กันหมดเวลา — ระบบจะทำต่ออัตโนมัติใน 15 นาที`;
+  } else {
+    clearContinuation_('runPart1_TaxInvoice');
+    tail = ` (${elapsed}s)`;
+  }
   const summary = `Part 1 เสร็จ — Case A: ${countA}, Queue B: ${countB}, Skip: ${countSkip}, Error: ${countError}${tail}`;
   toast(summary, 'FinFin', 10);
   Logger.log(summary);
@@ -464,8 +492,12 @@ function runPart1_ServiceFee(sheetName) {
   try { pmtMapSvc = getPaymentMethodMap_(); } catch (e) { Logger.log('pmtMap error: ' + e.message); }
   const pmtInfoSvc = pmtMapSvc[CONFIG.PMT_TRANSFER] || pmtMapSvc[CONFIG.PMT_CASH];
 
+  const guard = makeTimeGuard_(5);
+  let stoppedEarly = false, quotaHit = false;
+
   let ok = 0, err = 0;
   for (const item of eligible) {
+    if (guard.expired()) { stoppedEarly = true; break; }
     writeSumCell_(sheet, item.rowIndex, svcDocCol, CONFIG.PROCESSING_MARKER);
     try {
       const contactUuid = getContactId_(item.invCode);
@@ -485,12 +517,27 @@ function runPart1_ServiceFee(sheetName) {
       ok++;
     } catch (e) {
       writeSumCell_(sheet, item.rowIndex, svcDocCol, '');
+      if (classifyError_(e) === 'quota') {
+        logEntry('Part1-SVC', sheetName, item.rowIndex, item.invCode, 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
+        quotaHit = true;
+        stoppedEarly = true;
+        break;
+      }
       logEntry('Part1-SVC', sheetName, item.rowIndex, item.invCode, 'ERROR', '', e.message);
       err++;
     }
   }
 
-  const summary = `Part 1 ค่าบริการ — สร้าง: ${ok}, Error: ${err}`;
+  let svcTail = '';
+  if (stoppedEarly) {
+    scheduleContinuation_('runPart1_ServiceFee', sheetName, ok > 0);
+    svcTail = quotaHit
+      ? ' ⏸️ หยุดชั่วคราว (โควตา) — ทำต่ออัตโนมัติใน 15 นาที'
+      : ' ⏸️ หยุดกันหมดเวลา — ทำต่ออัตโนมัติใน 15 นาที';
+  } else {
+    clearContinuation_('runPart1_ServiceFee');
+  }
+  const summary = `Part 1 ค่าบริการ — สร้าง: ${ok}, Error: ${err}${svcTail}`;
   toast(summary, 'FinFin', 10);
   Logger.log(summary);
   return summary;

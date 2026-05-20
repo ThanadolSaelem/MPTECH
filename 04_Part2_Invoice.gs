@@ -30,7 +30,11 @@ function runPart2_Invoice(sheetName) {
 
   let countOk = 0, countSkip = 0, countError = 0;
 
+  const guard = makeTimeGuard_(5);
+  let stoppedEarly = false, quotaHit = false;
+
   for (let i = 0; i < data.length; i++) {
+    if (guard.expired()) { stoppedEarly = true; break; }
     const row = data[i];
 
     const invCode = String(row[CONFIG.COL.INV] || '').trim();
@@ -80,12 +84,27 @@ function runPart2_Invoice(sheetName) {
       countOk++;
     } catch (e) {
       writeSumCell_(sheet, i, invDocCol, '');
+      if (classifyError_(e) === 'quota') {
+        logEntry('Part2', sheetName, i, invCode, 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
+        quotaHit = true;
+        stoppedEarly = true;
+        break;
+      }
       logEntry('Part2', sheetName, i, invCode, 'ERROR', '', e.message);
       countError++;
     }
   }
 
-  const summary = `Part 2 เสร็จ — สร้าง: ${countOk}, ข้าม: ${countSkip}, Error: ${countError}`;
+  let tail = '';
+  if (stoppedEarly) {
+    scheduleContinuation_('runPart2_Invoice', sheetName, countOk > 0);
+    tail = quotaHit
+      ? ' ⏸️ หยุดชั่วคราว (โควตา) — ทำต่ออัตโนมัติใน 15 นาที'
+      : ' ⏸️ หยุดกันหมดเวลา — ทำต่ออัตโนมัติใน 15 นาที';
+  } else {
+    clearContinuation_('runPart2_Invoice');
+  }
+  const summary = `Part 2 เสร็จ — สร้าง: ${countOk}, ข้าม: ${countSkip}, Error: ${countError}${tail}`;
   toast(summary, 'FinFin', 10);
   Logger.log(summary);
   return summary;

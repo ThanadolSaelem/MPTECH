@@ -85,25 +85,40 @@ function runPart3_LateFee(statementSheetName) {
     throw new Error('ไม่พบ payment method ใน PEAK — ตั้งค่า "โอนเงิน" หรือ "เงินสด" ใน PEAK ก่อน');
   }
 
+  const guard = makeTimeGuard_(5);
+  let stoppedEarly = false, quotaHit = false;
+
   const batch = [];
   let countOk = 0;
 
   for (const item of eligible) {
+    if (guard.expired()) { stoppedEarly = true; break; }
     writeStatementCell_(sheet, item.rowIndex, feeDocCol, headerRow, CONFIG.PROCESSING_MARKER);
     batch.push(item);
 
     if (batch.length >= CONFIG.BATCH_SIZE) {
-      const { ok, err } = submitLateFeesBatch_(sheet, batch, statementSheetName, feeDocCol, headerRow, pmtInfo);
-      countOk += ok; countError += err;
+      const r = submitLateFeesBatch_(sheet, batch, statementSheetName, feeDocCol, headerRow, pmtInfo);
+      countOk += r.ok; countError += r.err;
       batch.length = 0;
+      if (r.quotaHit) { quotaHit = true; stoppedEarly = true; break; }
     }
   }
-  if (batch.length > 0) {
-    const { ok, err } = submitLateFeesBatch_(sheet, batch, statementSheetName, feeDocCol, headerRow, pmtInfo);
-    countOk += ok; countError += err;
+  if (!stoppedEarly && batch.length > 0) {
+    const r = submitLateFeesBatch_(sheet, batch, statementSheetName, feeDocCol, headerRow, pmtInfo);
+    countOk += r.ok; countError += r.err;
+    if (r.quotaHit) { quotaHit = true; stoppedEarly = true; }
   }
 
-  const summary = `Part 3 เสร็จ — Queue: ${countOk}, Skip: ${countSkip}, Error: ${countError}`;
+  let tail = '';
+  if (stoppedEarly) {
+    scheduleContinuation_('runPart3_LateFee', statementSheetName, countOk > 0);
+    tail = quotaHit
+      ? ' ⏸️ หยุดชั่วคราว (โควตา) — ทำต่ออัตโนมัติใน 15 นาที'
+      : ' ⏸️ หยุดกันหมดเวลา — ทำต่ออัตโนมัติใน 15 นาที';
+  } else {
+    clearContinuation_('runPart3_LateFee');
+  }
+  const summary = `Part 3 เสร็จ — Queue: ${countOk}, Skip: ${countSkip}, Error: ${countError}${tail}`;
   toast(summary, 'FinFin', 10);
   Logger.log(summary);
   return summary;
@@ -148,6 +163,10 @@ function submitLateFeesBatch_(sheet, batch, sheetName, feeDocCol, headerRow, pmt
     batch.forEach(item =>
       writeStatementCell_(sheet, item.rowIndex, feeDocCol, headerRow, '')
     );
+    if (classifyError_(e) === 'quota') {
+      logEntry('Part3', sheetName, -1, 'BATCH', 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
+      return { ok: 0, err: 0, quotaHit: true };
+    }
     logEntry('Part3', sheetName, -1, 'BATCH', 'ERROR', '', e.message);
     return { ok: 0, err: batch.length };
   }
