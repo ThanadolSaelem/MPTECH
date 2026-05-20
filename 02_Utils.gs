@@ -520,11 +520,11 @@ function tryRecoverPeakDoc_(endpoint, code) {
       // ถ้า PEAK API ไม่ filter ให้ถูก items[0] จะเป็น doc ของ contract อื่น
       const match = items.find(doc => doc.code === code);
       if (!match) return null;
-      return match.receiptCode || match.taxInvoiceCode || match.invoiceCode || null;
+      return match.receiptCode || match.taxInvoiceCode || match.invoiceCode || match.creditNoteCode || null;
     }
     // Single-object response — validate code ก่อนคืน
     if (res && res.code === code) {
-      return res.receiptCode || res.taxInvoiceCode || res.invoiceCode || null;
+      return res.receiptCode || res.taxInvoiceCode || res.invoiceCode || res.creditNoteCode || null;
     }
   } catch (e) {
     Logger.log(`tryRecoverPeakDoc_ ${endpoint}?code=${code}: ${e.message}`);
