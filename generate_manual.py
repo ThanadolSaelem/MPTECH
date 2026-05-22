@@ -1,587 +1,356 @@
-"""
-สร้างคู่มือการใช้งาน MTECH ระบบบัญชี FinFin (.docx)
-Run: python3.12 generate_manual.py
-"""
+"""Generate updated MPTECH manual — replaces MTECH→MPTECH and appends new chapters."""
 from __future__ import annotations
+import os
 from docx import Document
 from docx.shared import Pt, Cm, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
-import copy, os
 
-SS = "/home/user/MTECH/manual_screenshots"
-_IMG_EXT = ".jpg"  # use compressed JPEG
-OUT = "/home/user/MTECH/คู่มือการใช้งาน_MTECH.docx"
+SRC  = "/root/.claude/uploads/c2ca23fd-b630-4e72-9013-1ebfca2f7f24/c888ec48-________________MTECH.docx"
+OUT  = "/home/user/MTECH/คู่มือการใช้งาน_MPTECH.docx"
+SS   = "/home/user/MTECH/manual_screenshots"
 
-# ── Colour palette ────────────────────────────────────────────────────────────
-C_BLUE   = RGBColor(0x25, 0x63, 0xEB)
-C_DARK   = RGBColor(0x0f, 0x17, 0x2a)
-C_GREY   = RGBColor(0x47, 0x55, 0x69)
-C_GREEN  = RGBColor(0x15, 0x80, 0x3d)
-C_ORANGE = RGBColor(0xb4, 0x53, 0x09)
-C_RED    = RGBColor(0xb9, 0x1c, 0x1c)
-C_WHITE  = RGBColor(0xFF, 0xFF, 0xFF)
+def ss(name):
+    new = f"{SS}/ss_{name}_new.png"
+    old = f"{SS}/ss_{name}.png"
+    return new if os.path.exists(new) else old
 
-FONT_TH  = "TH Sarabun New"
-FONT_FB  = "Leelawadee UI"   # fallback
+SS_DASH  = ss("dashboard")
+SS_TASKS = ss("tasks")
+SS_NOTIF = f"{SS}/ss_notifications.png"
+SS_SET   = ss("settings")
+SS_LOGS  = ss("logs")
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+FONT = "TH Sarabun New"
+IMG_W = Cm(15)
 
-def _font(run, size_pt: int, bold=False, italic=False,
-          color: RGBColor | None = None) -> None:
-    run.font.name   = FONT_TH
-    run.font.size   = Pt(size_pt)
-    run.font.bold   = bold
-    run.font.italic = italic
+def _run_font(run, size_pt, bold=False, color=None):
+    run.font.name = FONT
+    run.font.size = Pt(size_pt)
+    run.font.bold = bold
     if color:
         run.font.color.rgb = color
-    # fallback font for Thai rendering
-    rPr = run._r.get_or_add_rPr()
-    rFonts = OxmlElement("w:rFonts")
-    rFonts.set(qn("w:ascii"),    FONT_TH)
-    rFonts.set(qn("w:hAnsi"),    FONT_TH)
-    rFonts.set(qn("w:cs"),       FONT_TH)
-    rFonts.set(qn("w:eastAsia"), FONT_TH)
-    rPr.insert(0, rFonts)
 
+def add_heading(doc, text, level=1):
+    p = doc.add_heading(text, level=level)
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    for run in p.runs:
+        run.font.name = FONT
+        run.font.bold = True
+        run.font.color.rgb = RGBColor(0x0f, 0x17, 0x2a)
 
-def _set_para_spacing(para, before_pt=0, after_pt=6) -> None:
-    pPr = para._p.get_or_add_pPr()
-    spacing = OxmlElement("w:spacing")
-    spacing.set(qn("w:before"), str(int(before_pt * 20)))
-    spacing.set(qn("w:after"),  str(int(after_pt  * 20)))
-    pPr.append(spacing)
+def add_para(doc, text, size=14, bold=False, color=None):
+    p = doc.add_paragraph()
+    run = p.add_run(text)
+    _run_font(run, size, bold, color)
 
+def add_image(doc, path, caption=""):
+    if not os.path.exists(path):
+        add_para(doc, f"[ภาพ: {os.path.basename(path)} — ไม่พบไฟล์]",
+                 size=12, color=RGBColor(0xb9, 0x1c, 0x1c))
+        return
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.add_run().add_picture(path, width=IMG_W)
+    if caption:
+        c = doc.add_paragraph(caption)
+        c.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for r in c.runs:
+            _run_font(r, 11, color=RGBColor(0x47, 0x55, 0x69))
 
-def _set_cell_bg(cell, hex_color: str) -> None:
-    tc   = cell._tc
+def _shade_cell(cell, fill_hex):
+    tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
-    shd  = OxmlElement("w:shd")
-    shd.set(qn("w:val"),   "clear")
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
     shd.set(qn("w:color"), "auto")
-    shd.set(qn("w:fill"),  hex_color)
+    shd.set(qn("w:fill"), fill_hex)
     tcPr.append(shd)
 
+def add_callout(doc, icon, text, bg=(0xff,0xf3,0xc7)):
+    tbl = doc.add_table(rows=1, cols=1)
+    tbl.style = 'TableNormal'
+    cell = tbl.rows[0].cells[0]
+    cell.text = ""
+    _shade_cell(cell, "%02x%02x%02x" % bg)
+    p = cell.paragraphs[0]
+    run = p.add_run(f"{icon}  {text}")
+    _run_font(run, 13)
+    doc.add_paragraph()
 
-def _set_col_width(table, col_idx: int, width_cm: float) -> None:
-    for row in table.rows:
-        row.cells[col_idx].width = Cm(width_cm)
+def add_numbered_steps(doc, steps):
+    tbl = doc.add_table(rows=len(steps), cols=2)
+    tbl.style = 'TableNormal'
+    for i, step in enumerate(steps):
+        c0, c1 = tbl.rows[i].cells[0], tbl.rows[i].cells[1]
+        p0 = c0.paragraphs[0]
+        r0 = p0.add_run(str(i+1))
+        _run_font(r0, 13, bold=True)
+        p0.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        r1 = c1.paragraphs[0].add_run(step)
+        _run_font(r1, 13)
+    doc.add_paragraph()
 
-
-def _no_border_table(table) -> None:
-    tbl  = table._tbl
-    tblPr = tbl.find(qn("w:tblPr"))
-    if tblPr is None:
-        tblPr = OxmlElement("w:tblPr")
-        tbl.insert(0, tblPr)
-    tblBorders = OxmlElement("w:tblBorders")
-    for side in ("top","left","bottom","right","insideH","insideV"):
-        el = OxmlElement(f"w:{side}")
-        el.set(qn("w:val"),   "none")
-        el.set(qn("w:sz"),    "0")
-        el.set(qn("w:space"), "0")
-        el.set(qn("w:color"), "auto")
-        tblBorders.append(el)
-    tblPr.append(tblBorders)
-
-
-def _set_table_border(table, color_hex="CCCCCC") -> None:
-    tbl   = table._tbl
-    tblPr = tbl.find(qn("w:tblPr"))
-    if tblPr is None:
-        tblPr = OxmlElement("w:tblPr")
-        tbl.insert(0, tblPr)
-    tblBorders = OxmlElement("w:tblBorders")
-    for side in ("top","left","bottom","right","insideH","insideV"):
-        el = OxmlElement(f"w:{side}")
-        el.set(qn("w:val"),   "single")
-        el.set(qn("w:sz"),    "4")
-        el.set(qn("w:space"), "0")
-        el.set(qn("w:color"), color_hex)
-        tblBorders.append(el)
-    tblPr.append(tblBorders)
-
-
-class Manual:
-    def __init__(self) -> None:
-        self.doc = Document()
-        self._setup_page()
-
-    def _setup_page(self) -> None:
-        sec = self.doc.sections[0]
-        sec.page_width  = Cm(21)
-        sec.page_height = Cm(29.7)
-        sec.left_margin = sec.right_margin = Cm(2.5)
-        sec.top_margin  = sec.bottom_margin = Cm(2.5)
-
-    # ── Cover ─────────────────────────────────────────────────────────────────
-    def cover(self) -> None:
-        doc = self.doc
-        # top spacer
-        for _ in range(6):
-            p = doc.add_paragraph()
-            _set_para_spacing(p, 0, 0)
-
-        p = doc.add_paragraph()
-        r = p.add_run("MTECH ระบบบัญชี")
-        _font(r, 36, bold=True, color=C_BLUE)
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        p = doc.add_paragraph()
-        r = p.add_run("คู่มือการใช้งานสำหรับเจ้าหน้าที่")
-        _font(r, 20, color=C_DARK)
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        p = doc.add_paragraph()
-        r = p.add_run("FinFin — ระบบออกเอกสารบัญชีอัตโนมัติ")
-        _font(r, 14, color=C_GREY)
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        for _ in range(2):
-            p = doc.add_paragraph()
-            _set_para_spacing(p, 0, 0)
-
-        # meta table
-        tbl = doc.add_table(rows=3, cols=2)
-        _no_border_table(tbl)
-        meta = [("เวอร์ชัน", "1.0"), ("อัปเดตล่าสุด", "พฤษภาคม 2569"),
-                ("สำหรับ", "พี่นก · ชะเอม")]
-        for i, (k, v) in enumerate(meta):
-            rc = tbl.rows[i].cells
-            _set_cell_bg(rc[0], "EFF6FF")
-            _set_cell_bg(rc[1], "EFF6FF")
-            rk = rc[0].paragraphs[0].add_run(k)
-            _font(rk, 13, bold=True, color=C_BLUE)
-            rv = rc[1].paragraphs[0].add_run(v)
-            _font(rv, 13, color=C_DARK)
-        tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
-
-        doc.add_page_break()
-
-    # ── Chapter / Section headings ────────────────────────────────────────────
-    def h1(self, text: str) -> None:
-        p = self.doc.add_paragraph()
-        r = p.add_run(text)
-        _font(r, 18, bold=True, color=C_BLUE)
-        _set_para_spacing(p, 18, 8)
-
-    def h2(self, text: str) -> None:
-        p = self.doc.add_paragraph()
-        r = p.add_run(text)
-        _font(r, 14, bold=True, color=C_DARK)
-        _set_para_spacing(p, 10, 4)
-
-    def body(self, text: str, bold=False, color: RGBColor | None = None) -> None:
-        p = self.doc.add_paragraph()
-        r = p.add_run(text)
-        _font(r, 13, bold=bold, color=color or C_DARK)
-        _set_para_spacing(p, 0, 4)
-
-    def spacer(self, n=1) -> None:
-        for _ in range(n):
-            p = self.doc.add_paragraph()
-            _set_para_spacing(p, 0, 0)
-
-    # ── Callout box ───────────────────────────────────────────────────────────
-    def callout(self, emoji: str, text: str, bg="EFF6FF") -> None:
-        tbl = self.doc.add_table(rows=1, cols=1)
-        _set_table_border(tbl, "BFDBFE")
-        cell = tbl.rows[0].cells[0]
-        _set_cell_bg(cell, bg)
-        p = cell.paragraphs[0]
-        r = p.add_run(f"{emoji}  {text}")
-        _font(r, 13, color=C_DARK)
-        p.paragraph_format.space_before = Pt(4)
-        p.paragraph_format.space_after  = Pt(4)
-        self.spacer()
-
-    # ── Numbered step table ───────────────────────────────────────────────────
-    def steps(self, items: list[tuple[str, str]]) -> None:
-        tbl = self.doc.add_table(rows=len(items), cols=2)
-        _no_border_table(tbl)
-        for i, (num, desc) in enumerate(items):
-            cells = tbl.rows[i].cells
-            cells[0].width = Cm(1.2)
-            cells[1].width = Cm(13.8)
-            _set_cell_bg(cells[0], "DBEAFE")
-            rn = cells[0].paragraphs[0].add_run(num)
-            _font(rn, 14, bold=True, color=C_BLUE)
-            cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-            cells[0].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-            rd = cells[1].paragraphs[0].add_run(desc)
-            _font(rd, 13, color=C_DARK)
-        self.spacer()
-
-    # ── Data table ────────────────────────────────────────────────────────────
-    def table(self, headers: list[str], rows: list[list[str]],
-              col_widths: list[float] | None = None) -> None:
-        tbl = self.doc.add_table(rows=1 + len(rows), cols=len(headers))
-        _set_table_border(tbl, "CBD5E1")
-
-        # header row
-        hr = tbl.rows[0]
-        for j, h in enumerate(headers):
-            _set_cell_bg(hr.cells[j], "1E3A8A")
-            r = hr.cells[j].paragraphs[0].add_run(h)
-            _font(r, 12, bold=True, color=C_WHITE)
-            hr.cells[j].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-        # data rows
-        for i, row in enumerate(rows):
-            bg = "F8FAFC" if i % 2 == 0 else "EFF6FF"
-            for j, val in enumerate(row):
-                _set_cell_bg(tbl.rows[i + 1].cells[j], bg)
-                r = tbl.rows[i + 1].cells[j].paragraphs[0].add_run(val)
-                _font(r, 12, color=C_DARK)
-
+def add_table(doc, headers, rows, col_widths=None):
+    tbl = doc.add_table(rows=1+len(rows), cols=len(headers))
+    tbl.style = 'TableNormal'
+    for j, h in enumerate(headers):
+        cell = tbl.rows[0].cells[j]
+        cell.text = ""
+        _shade_cell(cell, "dbeafe")
+        r = cell.paragraphs[0].add_run(h)
+        _run_font(r, 13, bold=True)
         if col_widths:
-            for j, w in enumerate(col_widths):
-                _set_col_width(tbl, j, w)
-        self.spacer()
+            cell.width = Cm(col_widths[j])
+    for i, row in enumerate(rows):
+        for j, val in enumerate(row):
+            cell = tbl.rows[i+1].cells[j]
+            cell.text = ""
+            r = cell.paragraphs[0].add_run(str(val))
+            _run_font(r, 13)
+            if col_widths:
+                cell.width = Cm(col_widths[j])
+    doc.add_paragraph()
 
-    # ── Image ─────────────────────────────────────────────────────────────────
-    def image(self, path: str, caption: str = "", width_cm=14.0) -> None:
-        if not os.path.exists(path):
-            self.body(f"[ภาพ: {path} ไม่พบไฟล์]", color=C_RED)
-            return
-        self.doc.add_picture(path, width=Cm(width_cm))
-        last = self.doc.paragraphs[-1]
-        last.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        if caption:
-            p = self.doc.add_paragraph()
-            r = p.add_run(caption)
-            _font(r, 11, italic=True, color=C_GREY)
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        self.spacer()
+def clone_and_rename(src_path):
+    doc = Document(src_path)
+    for p in doc.paragraphs:
+        for r in p.runs:
+            if "MTECH" in r.text:
+                r.text = r.text.replace("MTECH", "MPTECH")
+    for tbl in doc.tables:
+        for row in tbl.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    for r in p.runs:
+                        if "MTECH" in r.text:
+                            r.text = r.text.replace("MTECH", "MPTECH")
+    doc.core_properties.title = "คู่มือการใช้งาน MPTECH ระบบบัญชี"
+    return doc
 
-    # ── Build all chapters ────────────────────────────────────────────────────
-    def build(self) -> None:
-        self.cover()
-        self._ch1()
-        self._ch2()
-        self._ch3()
-        self._ch4()
-        self._ch5()
-        self._ch6()
-        self._ch7()
-        self._ch8()
+def build(doc):
+    doc.add_page_break()
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # บทที่ 1 — ภาพรวมระบบ
-    # ─────────────────────────────────────────────────────────────────────────
-    def _ch1(self) -> None:
-        self.h1("บทที่ 1   ภาพรวมระบบ")
+    # ── บทที่ 6 หน้าแจ้งเตือน ────────────────────────────────────────────────
+    add_heading(doc, "บทที่ 6   หน้าแจ้งเตือน (Notifications)", level=1)
+    add_para(doc,
+        "หน้าแจ้งเตือนคือศูนย์กลางที่รวบรวมสิ่งที่ต้องทำและสถานะล่าสุดของระบบ "
+        "— เปิดหน้านี้ก่อนทุกครั้งเมื่อเริ่มทำงาน")
+    doc.add_paragraph()
+    add_image(doc, SS_NOTIF, "หน้าแจ้งเตือน — ภาพรวม 4 ส่วน")
 
-        self.h2("1.1  วัตถุประสงค์")
-        self.body(
-            "ระบบ MTECH ระบบบัญชี พัฒนาขึ้นเพื่อให้เจ้าหน้าที่สามารถออกเอกสารบัญชีผ่าน PEAK "
-            "ได้อย่างอัตโนมัติ แทนที่กระบวนการทำด้วยมือที่ใช้เวลานานและเสี่ยงต่อข้อผิดพลาด"
-        )
-        self.spacer()
+    add_heading(doc, "6.1  สัญลักษณ์ Badge บนเมนู", level=2)
+    add_para(doc,
+        "เมื่อมีรายการที่ต้องดูแล ตัวเลขสีแดงจะปรากฏบนปุ่ม \"แจ้งเตือน\" ในแถบ Sidebar "
+        "— ระบบอัปเดต badge ทุก 90 วินาทีโดยอัตโนมัติ ไม่ต้องกด Refresh เอง")
+    doc.add_paragraph()
 
-        self.table(
-            ["ก่อนใช้ระบบ", "", "หลังใช้ระบบ"],
-            [
-                ["เปิดใบกำกับภาษีทีละใบใน SME Move", "→", "ออกใบกำกับภาษี bulk อัตโนมัติ ~800 ใบ/เดือน"],
-                ["แก้วันที่ทีละใบ (~ครึ่งวัน/เดือน)",  "→", "Date Logic คำนวณให้อัตโนมัติ"],
-                ["Upload Excel Template ทีละชุด",       "→", "ส่ง PEAK API ตรง ไม่ต้องแตะ Excel"],
-                ["เปิดใบเสร็จค่าปรับทีละใบ >100 ใบ",   "→", "รันคำสั่งเดียว ครบทุกรายการ"],
-            ],
-            col_widths=[6.5, 0.8, 6.5],
-        )
+    add_heading(doc, "6.2  ส่วนประกอบในหน้าแจ้งเตือน", level=2)
+    add_table(doc,
+        ["ส่วน", "สีหัวข้อ", "ความหมาย", "สิ่งที่ต้องทำ"],
+        [
+            ["Error ที่ต้องแก้", "แดง", "รายการที่ระบบสร้างเอกสารไม่สำเร็จ",
+             "อ่านรายละเอียด แก้ไขตามคู่มือบทที่ 7"],
+            ["งานที่ต้องลงมือ", "เหลือง/ส้ม",
+             "รายการที่รอการดำเนินการจากเจ้าหน้าที่",
+             "กลับไปหน้า Tasks แล้ว Run ตาม label ที่แสดง"],
+            ["งานค้าง — ระบบทำต่อให้เองอัตโนมัติ", "น้ำเงิน",
+             "Queue ที่รอผลจาก PEAK — ระบบ Poll ต่อเอง",
+             "ไม่ต้องทำอะไร หรือกด Poll Queue ถ้าต้องการเร่ง"],
+            ["สรุปกิจกรรมล่าสุด", "เทา",
+             "ตารางสรุปผล Part ล่าสุดที่รันไป",
+             "ตรวจตัวเลข Error — ถ้า > 0 ให้ดูหน้า Logs"],
+        ],
+        col_widths=[5.0, 2.8, 5.0, 5.5]
+    )
 
-        self.h2("1.2  เอกสารที่ระบบออกให้")
-        self.table(
-            ["ส่วน", "ชื่องาน", "เอกสารที่ออก", "จำนวน/เดือน"],
-            [
-                ["Part 1", "ออกใบกำกับภาษี",     "ใบกำกับภาษี / ใบเสร็จรับเงิน",  "~800 ใบ"],
-                ["Part 1", "ค่าบริการเพิ่มเติม",  "ใบกำกับภาษีค่าบริการ",           "ตามจริง"],
-                ["Part 2", "ออกใบแจ้งหนี้ bulk",  "ใบแจ้งหนี้ + แตกงวดรับชำระ",    "ตามสัญญาใหม่"],
-                ["Part 3", "ออกใบเสร็จค่าปรับ",   "ใบเสร็จรับเงินค่าปรับ (ไม่มี VAT)", "~100+ ใบ"],
-                ["Part 4", "ออกใบลดหนี้ (คืนเครื่อง)", "ใบลดหนี้",              "ตามจริง"],
-                ["Part 5", "Match Statement",     "รายงาน Match SCB ↔ Receipt",   "ทุกเดือน"],
-            ],
-            col_widths=[1.5, 4.0, 5.5, 2.8],
-        )
-        self.doc.add_page_break()
+    add_heading(doc, "6.3  วิธีใช้งาน", level=2)
+    add_numbered_steps(doc, [
+        "คลิก \"แจ้งเตือน\" ในแถบซ้าย (หรือดู badge สีแดงก่อน)",
+        "อ่าน \"Error ที่ต้องแก้\" ก่อน — ถ้ามีรายการ ให้ทำตามบทที่ 7",
+        "ตรวจ \"งานที่ต้องลงมือ\" — มักบอกว่าให้รัน Part ไหนต่อ",
+        "ส่วน \"งานค้าง\" (สีน้ำเงิน) ไม่ต้องทำอะไร ระบบจัดการเอง",
+        "กด Refresh เพื่อดึงข้อมูลล่าสุดทันที",
+    ])
+    add_callout(doc, "💡",
+        "ถ้าหน้าแจ้งเตือนแสดง \"ไม่มีรายการ\" ทุกส่วน = ระบบทำงานปกติ ไม่มีอะไรต้องแก้ไข",
+        bg=(0xdc, 0xfc, 0xe7))
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # บทที่ 2 — การติดตั้งโปรแกรม
-    # ─────────────────────────────────────────────────────────────────────────
-    def _ch2(self) -> None:
-        self.h1("บทที่ 2   การติดตั้งโปรแกรม")
+    # ── บทที่ 7 คู่มือแก้ Error ─────────────────────────────────────────────
+    doc.add_page_break()
+    add_heading(doc, "บทที่ 7   คู่มือแก้ไขข้อผิดพลาด", level=1)
+    add_para(doc,
+        "เมื่อพบข้อความ Error ให้ค้นหาในตารางด้านล่าง แล้วทำตาม \"วิธีแก้ไข\" "
+        "— ปัญหาส่วนใหญ่แก้ได้เองโดยไม่ต้องติดต่อทีม MPTECH")
+    doc.add_paragraph()
 
-        self.h2("2.1  ความต้องการของระบบ")
-        self.table(
-            ["รายการ", "ข้อกำหนด"],
-            [
-                ["ระบบปฏิบัติการ", "Windows 10 / Windows 11"],
-                ["การเชื่อมต่ออินเทอร์เน็ต", "จำเป็น — ใช้ส่งคำสั่งไปยัง GAS และ PEAK"],
-                ["ไฟล์ติดตั้ง",  "MTECH_Setup.exe (รับจากทีม MTECH)"],
-                ["พื้นที่จัดเก็บ", "~100 MB"],
-            ],
-            col_widths=[5.0, 9.0],
-        )
+    add_heading(doc, "7.1  ข้อผิดพลาดเรื่องการเชื่อมต่อ", level=2)
+    add_table(doc,
+        ["ข้อความ Error", "สาเหตุ", "วิธีแก้ไข"],
+        [
+            ["ยังไม่ได้ตั้งค่า GAS URL ในหน้า Settings",
+             "ยังไม่กรอก URL หรือ URL ว่างเปล่า",
+             "Settings → กรอก GAS Web App URL → Save Local → Test Connection"],
+            ["ยังไม่ได้ตั้งค่า API Key ในหน้า Settings",
+             "ยังไม่กรอก API Key",
+             "Settings → กรอก API Key → Save Local"],
+            ["เชื่อมต่ออินเทอร์เน็ตไม่ได้ — ตรวจสอบ WiFi",
+             "อินเทอร์เน็ตขัดข้องหรือ WiFi หลุด",
+             "1. ตรวจสอบ WiFi / สายแลน\n2. ทดสอบเปิดเว็บ browser\n3. กลับมากด Test Connection"],
+            ["● Error หรือ ● Offline (มุมล่างซ้าย)",
+             "เชื่อมต่อ GAS ไม่ได้ หรือ URL ผิด",
+             "Settings → ตรวจ URL → Test Connection"],
+        ],
+        col_widths=[5.5, 4.5, 8.5]
+    )
 
-        self.h2("2.2  วิธีติดตั้ง")
-        self.steps([
-            ("1", "ดับเบิลคลิกที่ไฟล์ MTECH_Setup.exe ที่ได้รับมา"),
-            ("2", "กด Next และ Install ตามขั้นตอน → รอให้ติดตั้งเสร็จ"),
-            ("3", "กด Finish — โปรแกรมจะเปิดขึ้นอัตโนมัติ"),
-            ("4", "ครั้งแรกที่เปิด ระบบจะพาไปที่หน้า Settings เพื่อตั้งค่า (ดูบทที่ 3)"),
-        ])
-        self.callout("💡", "ไม่จำเป็นต้องมีสิทธิ์ Administrator — ติดตั้งในโฟลเดอร์ของผู้ใช้ปัจจุบันได้เลย")
-        self.doc.add_page_break()
+    add_heading(doc, "7.2  ข้อผิดพลาดเรื่องเวลา (Timeout)", level=2)
+    add_table(doc,
+        ["ข้อความ Error", "สาเหตุ", "วิธีแก้ไข"],
+        [
+            ["หมดเวลา (300s) — ลองใหม่อีกครั้ง",
+             "งานเยอะมาก GAS ใช้เวลานาน แต่ระบบบันทึก checkpoint แล้ว",
+             "กด \"Run อีกครั้ง\" ที่แถบเหลืองด้านล่าง Output\n"
+             "ระบบจะเริ่มต่อจากจุดที่ค้างไว้ (ไม่ซ้ำรายการที่ทำแล้ว)\n"
+             "รันซ้ำจนกว่า Output แสดง Error: 0"],
+        ],
+        col_widths=[5.5, 4.5, 8.5]
+    )
+    add_callout(doc, "📌",
+        "ปุ่ม \"Run อีกครั้ง\" จะปรากฏอัตโนมัติหลังหมดเวลา — ไม่ต้องเลือก task ใหม่ กดปุ่มนี้ได้เลย",
+        bg=(0xef, 0xf6, 0xff))
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # บทที่ 3 — การตั้งค่าครั้งแรก
-    # ─────────────────────────────────────────────────────────────────────────
-    def _ch3(self) -> None:
-        self.h1("บทที่ 3   การตั้งค่าครั้งแรก")
-        self.callout("💡",
-            "ขั้นตอนนี้ทำเพียงครั้งเดียว — เมื่อตั้งค่าแล้วไม่ต้องทำซ้ำ "
-            "เว้นแต่มีการเปลี่ยน GAS หรือ PEAK credentials")
+    add_heading(doc, "7.3  ข้อผิดพลาดจาก PEAK API", level=2)
+    add_table(doc,
+        ["ข้อความ Error", "สาเหตุ", "วิธีแก้ไข"],
+        [
+            ["PEAK API error: ยังไม่ได้ตั้งค่า CONNECT_ID / USER_TOKEN",
+             "ยังไม่ Push Credentials ไปยัง GAS",
+             "Settings → กรอก CONNECT_ID, USER_TOKEN, SPREADSHEET_ID → Push to GAS"],
+            ["PEAK API 401 / Unauthorized",
+             "USER_TOKEN หมดอายุ (Token มีอายุ 24 ชั่วโมง)",
+             "ขอ Token ใหม่จาก PEAK → Settings → ใส่ USER_TOKEN ใหม่ → Push to GAS"],
+            ["PEAK API 400: Transaction Limit exceeded",
+             "ใช้เกิน quota API ของเดือน",
+             "1. รอ 10 นาทีแล้วลองใหม่\n2. ถ้ายังเกิด แจ้งทีม MPTECH — อาจต้องอัปเกรด Package"],
+            ["PEAK API 429: Too many requests",
+             "ส่ง request ถี่เกินไป (rate limit)",
+             "ระบบ retry อัตโนมัติแล้ว — ถ้ายังค้าง รอ 30 วินาทีแล้ว Run อีกครั้ง"],
+            ["เลขที่เอกสารซ้ำ / Duplicate document",
+             "เอกสารนี้ถูกสร้างใน PEAK แล้ว",
+             "ระบบบันทึก [DUP] ให้อัตโนมัติ — งานเสร็จแล้ว ไม่ต้องทำอะไร"],
+            ["ไม่พบ Contact / Contact not found",
+             "สัญญา (invCode) ยังไม่ sync ไปยัง PEAK Contacts",
+             "รัน Part นั้นซ้ำ — ระบบ sync Contact อัตโนมัติก่อนสร้างเอกสาร"],
+        ],
+        col_widths=[5.5, 4.5, 8.5]
+    )
 
-        self.image(f"{SS}/ss_settings{_IMG_EXT}", "หน้า Settings — กรอกข้อมูลเชื่อมต่อ")
+    add_heading(doc, "7.4  ข้อผิดพลาดเรื่อง Google Sheets", level=2)
+    add_table(doc,
+        ["อาการ", "สาเหตุ", "วิธีแก้ไข"],
+        [
+            ["Dashboard แสดง 0 ทุกการ์ด หรือ \"not found\"",
+             "ชื่อ Sheet ไม่ตรง หรือยังไม่ได้เลือกเดือน",
+             "กรอกเดือนให้ถูกรูปแบบ เช่น 05.2026 → กด Refresh"],
+            ["ตัวเลขใน Dashboard ไม่อัปเดตหลัง Run",
+             "ยังไม่ได้กด Refresh หรือ Queue ยังรอผล",
+             "กด Refresh บน Dashboard — ถ้ามี Queue > 0 รอ Poll ก่อน"],
+            ["Output แสดง Error: N รายการหลัง Run",
+             "บางแถวยังออกเอกสารไม่ได้",
+             "กด \"Run อีกครั้ง\" — ระบบข้ามรายการที่ทำแล้ว ทำแค่ส่วนที่ค้าง"],
+            ["Part 5 Match Statement ไม่พบข้อมูล",
+             "ชื่อ Sheet Statement หรือ Sum ไม่ถูกต้อง",
+             "ในช่อง เดือน กรอก: ชื่อ Statement Sheet, ชื่อ Sum Sheet\nเช่น SCB05.2026,Sum05.2026"],
+        ],
+        col_widths=[5.5, 4.5, 8.5]
+    )
 
-        self.h2("3.1  กรอก GAS Web App URL และ API Key")
-        self.body("ข้อมูลนี้รับจากทีม MTECH — ใส่แล้วกด Save Local เพื่อบันทึกลงเครื่อง")
-        self.steps([
-            ("1", "กรอก GAS Web App URL ในช่องแรก\nตัวอย่าง: https://script.google.com/macros/s/AKfycb…/exec"),
-            ("2", "กรอก API Key ในช่องที่สอง (ตัวอักษรที่พิมพ์จะแสดงเป็น •••••)"),
-            ("3", "กดปุ่ม Save Local — ระบบแสดง ✅ บันทึกเรียบร้อย"),
-        ])
+    add_heading(doc, "7.5  Queue ค้าง", level=2)
+    add_table(doc,
+        ["อาการ", "วิธีแก้ไข"],
+        [
+            ["Queue > 0 แต่ไม่ลดลงนานหลายชั่วโมง",
+             "Tasks → เลือก \"Poll Queue ทันที\" → Run"],
+            ["Dashboard Queue ยังแสดงตัวเลขหลัง Poll",
+             "PEAK ยังประมวลผลไม่เสร็จ — รอ 5-10 นาทีแล้ว Poll ซ้ำ"],
+            ["Poll แล้ว Output แสดง \"Transaction Limit exceeded\"",
+             "PEAK API quota เต็ม — รอ 10 นาทีแล้ว Poll ซ้ำ ระบบไม่ลบ Queue ไว้ให้"],
+        ],
+        col_widths=[7, 11.5]
+    )
 
-        self.h2("3.2  กรอก PEAK Credentials")
-        self.body(
-            "ข้อมูลส่วนนี้รับจากทีม PEAK หลังสมัครใช้งาน API — "
-            "เมื่อกรอกแล้วกด Push to GAS เพื่อส่งไปเก็บที่ระบบ GAS"
-        )
-        self.table(
-            ["ช่อง", "คำอธิบาย"],
-            [
-                ["CONNECT_ID",            "รหัสเชื่อมต่อ PEAK (รับจาก Email ของ PEAK)"],
-                ["USER_TOKEN",            "รหัสผ่าน API (สร้างจากหน้า PEAK โดยใช้ Application Code)"],
-                ["SPREADSHEET_ID",        "ID ของ Google Sheet หลัก (ดูจาก URL ของ Sheet)"],
-                ["RETURN_SPREADSHEET_ID", "ID ของ Sheet ไฟล์รับคืน (ว่างได้ถ้าอยู่ใน Sheet เดียวกัน)"],
-            ],
-            col_widths=[4.5, 9.5],
-        )
-        self.steps([
-            ("1", "กรอก CONNECT_ID, USER_TOKEN, SPREADSHEET_ID ให้ครบ"),
-            ("2", "กดปุ่ม Push to GAS — ระบบแสดง ✅ Push สำเร็จ"),
-        ])
-        self.callout("⚠️",
-            "USER_TOKEN มีอายุ — หากระบบแจ้ง error เรื่อง token ให้ขอ User Token ใหม่จาก PEAK "
-            "แล้ว Push to GAS อีกครั้ง")
+    add_heading(doc, "7.6  ขั้นตอนฉุกเฉิน (Emergency Checklist)", level=2)
+    add_numbered_steps(doc, [
+        "เปิดหน้า \"แจ้งเตือน\" → อ่านส่วน \"Error ที่ต้องแก้\" ก่อน",
+        "เปิดหน้า \"Logs\" → กด Refresh → ดูคอลัมน์ Status และ msg ของแถวล่าสุด",
+        "ค้นหาข้อความ Error ในตาราง 7.1–7.5 ด้านบน แล้วทำตาม",
+        "ถ้าข้อความ Error ไม่อยู่ในตาราง — จดข้อความเต็ม ส่ง screenshot ให้ทีม MPTECH",
+        "ห้ามลบหรือแก้ข้อมูลใน Google Sheets โดยตรง — แจ้งทีม MPTECH ก่อน",
+    ])
+    add_callout(doc, "⚠️",
+        "ถ้าพบข้อความ [PROCESSING] ค้างในคอลัมน์ PEAK_DOC นานกว่า 1 ชั่วโมง "
+        "แจ้งทีม MPTECH — อย่าลบออกเอง เพราะระบบใช้ค่านี้ป้องกันการสร้างเอกสารซ้ำ",
+        bg=(0xff, 0xf1, 0xf1))
 
-        self.h2("3.3  ทดสอบการเชื่อมต่อ")
-        self.steps([
-            ("1", "กดปุ่ม Test Connection"),
-            ("2", "รอสักครู่ — ถ้าเชื่อมต่อสำเร็จจะแสดง ✅ เชื่อมต่อสำเร็จ"),
-            ("3", "แถบสถานะด้านซ้ายล่างจะเปลี่ยนเป็น ● Connected (สีเขียว)"),
-        ])
-        self.doc.add_page_break()
+    # ── บทที่ 8 ข้อมูลอ้างอิง ────────────────────────────────────────────────
+    doc.add_page_break()
+    add_heading(doc, "บทที่ 8   ข้อมูลอ้างอิง", level=1)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # บทที่ 4 — หน้า Dashboard
-    # ─────────────────────────────────────────────────────────────────────────
-    def _ch4(self) -> None:
-        self.h1("บทที่ 4   หน้า Dashboard")
-        self.body("หน้า Dashboard แสดงภาพรวมสถานะงานประจำเดือน — ใช้ตรวจสอบว่าแต่ละ Part ทำเสร็จแล้วหรือยัง")
-        self.image(f"{SS}/ss_dashboard{_IMG_EXT}", "หน้า Dashboard — ภาพรวมสถานะงาน")
+    add_heading(doc, "8.1  สัญลักษณ์สถานะในโปรแกรม", level=2)
+    add_table(doc,
+        ["สัญลักษณ์", "ความหมาย", "สิ่งที่ต้องทำ"],
+        [
+            ["● Connected (สีเขียว)", "เชื่อมต่อ GAS สำเร็จ — พร้อมใช้งาน", "ไม่ต้องทำอะไร"],
+            ["● Offline (สีแดง)", "ไม่มีอินเทอร์เน็ต", "ตรวจ WiFi → กด Test Connection"],
+            ["● Error (สีเหลือง/ส้ม)", "เชื่อมต่อได้แต่ GAS ตอบผิดปกติ", "กด Test Connection เพื่อดูรายละเอียด"],
+            ["[PROCESSING]", "กำลังสร้างเอกสาร (ล็อคป้องกันซ้ำ)", "รอให้งานเสร็จ — ห้ามลบ"],
+            ["[DUP]", "เอกสารซ้ำ — มีอยู่ใน PEAK แล้ว", "ปกติ ไม่ต้องทำอะไร"],
+            ["[IN-PEAK]", "เอกสารอยู่ใน PEAK แต่ระบบไม่ทราบเลขที่", "แจ้งทีม MPTECH เพื่อกู้เลขที่เอกสาร"],
+            ["TAX2026050001 / INV2026050001", "เลขที่เอกสารจาก PEAK — งานเสร็จ", "ตรวจสอบใน PEAK Account ได้เลย"],
+        ],
+        col_widths=[4.5, 7, 7]
+    )
 
-        self.h2("4.1  การ์ดสถิติ 4 ใบ")
-        self.body("แต่ละการ์ดแสดงตัวเลข 3 ค่า สีต่างกัน:")
-        self.table(
-            ["ตัวเลข", "สี", "ความหมาย"],
-            [
-                ["ทำแล้ว",     "เขียว", "รายการที่ออกเอกสารใน PEAK สำเร็จแล้ว"],
-                ["Queue",      "ส้ม",   "รายการที่ส่ง PEAK แล้ว แต่ยังรอผลลัพธ์"],
-                ["ยังไม่ออก",  "แดง",   "รายการที่ยังไม่ได้ออกเอกสาร (ต้องรัน Task)"],
-            ],
-            col_widths=[2.5, 2.0, 9.5],
-        )
+    add_heading(doc, "8.2  รายการ Tasks ทั้งหมด", level=2)
+    add_table(doc,
+        ["Task", "ใช้เมื่อไหร่", "ต้องใส่เดือน", "เวลาโดยประมาณ"],
+        [
+            ["Part 1 — ออกใบกำกับภาษี",
+             "ต้นเดือน หลังรวบรวม Receipt ครบ", "✅", "3–10 นาที"],
+            ["Part 1 — ค่าบริการเพิ่มเติม",
+             "มีค่าบริการพิเศษนอกเหนือปกติ", "✅", "1–3 นาที"],
+            ["Part 2 — ออกใบแจ้งหนี้ bulk",
+             "มีสัญญาใหม่ที่ต้องออกใบแจ้งหนี้", "✅", "2–5 นาที"],
+            ["Part 3 — ออกใบเสร็จค่าปรับ",
+             "มีรายการค่าปรับ/ค่าชดเชย", "✅", "1–3 นาที"],
+            ["Part 4 — ออกใบลดหนี้ (คืนเครื่อง)",
+             "มีการคืนเครื่อง/ยกเลิกสัญญา", "❌", "1–2 นาที"],
+            ["Part 5 — Match Statement",
+             "ทุกเดือน หลังได้ Statement ธนาคาร", "✅ (2 ชีต)", "2–5 นาที"],
+            ["Poll Queue ทันที",
+             "หลัง Part 1/2/3 ถ้ามี Queue ค้าง", "❌", "< 1 นาที"],
+            ["ทดสอบ PEAK Connection",
+             "เมื่อสงสัยว่า PEAK API มีปัญหา", "❌", "< 30 วินาที"],
+        ],
+        col_widths=[5.0, 5.5, 3, 4]
+    )
 
-        self.h2("4.2  วิธีเลือกเดือนและ Refresh")
-        self.steps([
-            ("1", "พิมพ์เดือนในช่อง เช่น 05.2026 (รูปแบบ MM.YYYY)"),
-            ("2", "กดปุ่ม Refresh — ตัวเลขจะอัปเดตตามเดือนที่เลือก"),
-            ("3", "ถ้าปล่อยว่าง ระบบจะดึงข้อมูลเดือนปัจจุบัน"),
-        ])
-
-        self.h2("4.3  Queue Status และ Error ล่าสุด")
-        self.body(
-            "Queue Status แสดงจำนวนรายการที่รอผลลัพธ์จาก PEAK — "
-            "ถ้ามีค่า > 0 ให้ไปที่หน้า Tasks แล้วกด Poll Queue ทันที"
-        )
-        self.callout("📌",
-            "Error ล่าสุด — ถ้าแสดง \"No recent errors\" (สีเขียว) แสดงว่าระบบทำงานปกติ "
-            "ถ้ามีรายการ error ให้ตรวจสอบที่หน้า Logs")
-        self.doc.add_page_break()
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # บทที่ 5 — หน้า Tasks
-    # ─────────────────────────────────────────────────────────────────────────
-    def _ch5(self) -> None:
-        self.h1("บทที่ 5   หน้า Tasks (การรันงาน)")
-        self.body(
-            "หน้า Tasks คือศูนย์กลางการรันงานทั้งหมด — เลือก task ที่ต้องการ "
-            "ใส่เดือน แล้วกดปุ่มนั้น ระบบจะส่งคำสั่งไปยัง GAS ทันที"
-        )
-        self.image(f"{SS}/ss_tasks{_IMG_EXT}", "หน้า Tasks — รายการงานทั้งหมด")
-
-        self.h2("5.1  วิธีใช้งานทั่วไป")
-        self.steps([
-            ("1", "พิมพ์เดือนในช่อง เดือน เช่น 05.2026\n"
-                  "· ปล่อยว่างได้ถ้าต้องการเดือนปัจจุบัน\n"
-                  "· ไม่ต้องพิมพ์ prefix เช่น Receipt — ระบบเติมให้อัตโนมัติ"),
-            ("2", "กดปุ่ม task ที่ต้องการรัน"),
-            ("3", "รอดูผลใน Output box ด้านล่าง\n"
-                  "  ✓ สีเขียว = สำเร็จ\n"
-                  "  ✗ สีแดง = มีข้อผิดพลาด (ดูรายละเอียดในหน้า Logs)"),
-        ])
-        self.callout("⚠️",
-            "อย่ากดปุ่มซ้ำในขณะที่กำลังรันอยู่ — ระบบมีการป้องกัน duplicate "
-            "แต่การกดซ้ำอาจทำให้ output สับสน")
-
-        self.h2("5.2  ตารางสรุป Tasks ทั้งหมด")
-        self.table(
-            ["ปุ่ม", "ใช้เมื่อ", "ต้องใส่เดือน", "หมายเหตุ"],
-            [
-                ["Part 1 — ออกใบกำกับภาษี",      "ต้นเดือน หลังรวบรวม Receipt ครบ",        "✅", "งานหลัก ~800 ใบ/เดือน"],
-                ["Part 1 — ค่าบริการเพิ่มเติม",   "มีค่าบริการพิเศษ เช่น ค่าปลดล็อก",      "✅", ""],
-                ["Part 2 — ออกใบแจ้งหนี้ bulk",   "มีสัญญาใหม่ในเดือนนั้น",                "✅", "ทำครั้งเดียวต่อเดือน"],
-                ["Part 3 — ออกใบเสร็จค่าปรับ",    "มีรายการค่าปรับในชีต",                   "✅", "~100+ ใบ/เดือน"],
-                ["Part 4 — ออกใบลดหนี้",          "มีการคืนเครื่อง",                        "❌", "ดึงข้อมูลจากไฟล์รับคืน"],
-                ["Part 5 — Match Statement",      "หลัง Download Statement SCB",            "✅", "ใส่ชื่อชีต 2 ชีต"],
-                ["Poll Queue ทันที",              "หลัง Part 1/2/3 มีตัวเลข Queue > 0",     "❌", "รับเลขที่เอกสารจาก PEAK"],
-                ["ทดสอบ PEAK Connection",         "เมื่อสงสัยว่า PEAK ใช้งานได้หรือไม่",    "❌", ""],
-            ],
-            col_widths=[4.2, 4.8, 2.2, 2.8],
-        )
-
-        self.h2("5.3  Part 5 — Match Statement (พิเศษ)")
-        self.body(
-            "Part 5 ต้องการชีต 2 ชีต — ระบบจะถามชื่อชีตในช่อง เดือน "
-            "โดย prefix จะเติมให้อัตโนมัติ:"
-        )
-        self.table(
-            ["ช่อง", "พิมพ์", "ระบบจะหาชีต"],
-            [
-                ["Statement Sheet", "05.2026", "SCB05.2026"],
-                ["Receipt Sheet",   "05.2026", "Receipt05.2026"],
-            ],
-            col_widths=[3.5, 3.5, 7.0],
-        )
-        self.doc.add_page_break()
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # บทที่ 6 — หน้า Logs
-    # ─────────────────────────────────────────────────────────────────────────
-    def _ch6(self) -> None:
-        self.h1("บทที่ 6   หน้า Logs")
-        self.body(
-            "หน้า Logs แสดงประวัติการทำงานของระบบ 80 แถวล่าสุด — "
-            "ใช้ตรวจสอบเมื่อมี error หรือต้องการดู document number ที่ออกไป"
-        )
-        self.image(f"{SS}/ss_logs{_IMG_EXT}", "หน้า Logs — บันทึกการทำงาน")
-
-        self.h2("6.1  วิธีดู Log")
-        self.steps([
-            ("1", "กดปุ่ม Refresh เพื่อโหลด log ล่าสุด"),
-            ("2", "อ่านรายการจากบนลงล่าง — แถวล่างสุดคือรายการล่าสุด"),
-        ])
-
-        self.h2("6.2  ความหมายของแต่ละคอลัมน์ใน Log")
-        self.table(
-            ["คอลัมน์", "ตัวอย่าง", "ความหมาย"],
-            [
-                ["เวลา",   "2026-05-06 10:30:00", "วันและเวลาที่รัน"],
-                ["part",   "part1",               "งานที่รัน"],
-                ["sheet",  "Receipt05.2026",       "ชีตที่ประมวลผล"],
-                ["row",    "row 5",                "แถวใน Sheet"],
-                ["inv",    "INV-0001",             "เลขที่สัญญา"],
-                ["status", "ok / error",           "ผลลัพธ์"],
-                ["doc",    "TAX-0001",             "เลขที่เอกสารใน PEAK"],
-                ["msg",    "ข้อความ error",         "รายละเอียดเพิ่มเติม"],
-            ],
-            col_widths=[2.5, 4.0, 7.5],
-        )
-        self.doc.add_page_break()
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # บทที่ 7 — ปัญหาที่พบบ่อย
-    # ─────────────────────────────────────────────────────────────────────────
-    def _ch7(self) -> None:
-        self.h1("บทที่ 7   ปัญหาที่พบบ่อยและการแก้ไข")
-
-        self.table(
-            ["อาการที่พบ", "สาเหตุ", "วิธีแก้ไข"],
-            [
-                ["Output แสดง \"ยังไม่ได้ตั้งค่า GAS URL\"",
-                 "ยังไม่ได้กรอก GAS URL",
-                 "ไปหน้า Settings → กรอก GAS URL → Save Local"],
-                ["ไดอะล็อก \"No Internet\" ขึ้นมา",
-                 "ไม่มีการเชื่อมต่ออินเทอร์เน็ต",
-                 "ตรวจสอบ WiFi / สายแลน แล้วลองใหม่"],
-                ["Output แสดง \"หมดเวลา (300s)\"",
-                 "งานเยอะ GAS ใช้เวลานาน",
-                 "รอให้ครบแล้วกด Poll Queue ทันที"],
-                ["ตัวเลขใน Dashboard ไม่เปลี่ยน",
-                 "ยังแสดงข้อมูลเดิม",
-                 "กด Refresh หรือเลือกเดือนใหม่"],
-                ["Output แสดง \"✗ PEAK API error\"",
-                 "Credentials ผิดหรือหมดอายุ",
-                 "ไปหน้า Settings → อัปเดต USER_TOKEN → Push to GAS"],
-                ["สถานะซ้ายล่างแสดง ● Offline",
-                 "เชื่อมต่อ GAS ไม่ได้",
-                 "ตรวจอินเทอร์เน็ต แล้วกด Test Connection"],
-                ["แถวใน Sheet แสดง PROCESSING ค้างนาน",
-                 "GAS timeout ระหว่างรัน",
-                 "กด Poll Queue — ระบบจะ update เลขเอกสาร"],
-                ["ออกใบซ้ำ",
-                 "กดปุ่มซ้ำขณะรัน",
-                 "ระบบป้องกัน duplicate อัตโนมัติ — ตรวจคอลัมน์ผลใน Sheet"],
-            ],
-            col_widths=[4.5, 4.0, 5.5],
-        )
-        self.doc.add_page_break()
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # บทที่ 8 — ข้อมูลอ้างอิง
-    # ─────────────────────────────────────────────────────────────────────────
-    def _ch8(self) -> None:
-        self.h1("บทที่ 8   ข้อมูลอ้างอิง")
-
-        self.h2("8.1  สัญลักษณ์สถานะในโปรแกรม")
-        self.table(
-            ["สัญลักษณ์", "ความหมาย"],
-            [
-                ["● Connected (เขียว)",   "เชื่อมต่อ GAS สำเร็จ — พร้อมใช้งาน"],
-                ["● Offline (แดง)",       "เชื่อมต่อไม่ได้ — ตรวจอินเทอร์เน็ต"],
-                ["● Error (แดง)",         "เชื่อมต่อได้แต่ GAS ตอบ error"],
-                ["● ตรวจสอบ… (เทา)",     "กำลังทดสอบการเชื่อมต่ออยู่"],
-                ["✓ (เขียว ใน Output)",   "Task รันสำเร็จ"],
-                ["✗ (แดง ใน Output)",     "Task ล้มเหลว — ดู Logs สำหรับรายละเอียด"],
-            ],
-            col_widths=[4.5, 9.5],
-        )
-
-        self.h2("8.2  ผู้ดูแลระบบ (ติดต่อเมื่อต้องการความช่วยเหลือ)")
-        self.callout("📌",
-            "หากพบปัญหาที่ไม่สามารถแก้ไขได้ด้วยตนเอง กรุณาติดต่อทีม MTECH "
-            "พร้อมแจ้ง: อาการที่พบ, หน้าจอ Error ล่าสุดใน Logs, และเดือนที่มีปัญหา")
+    add_heading(doc, "8.3  ผู้ดูแลระบบ", level=2)
+    add_callout(doc, "📌",
+        "ทีม MPTECH — ติดต่อผ่าน Line หรือโทรตรงเมื่อพบปัญหาที่แก้ตามคู่มือแล้วยังไม่หาย\n"
+        "ข้อมูลที่ควรเตรียม: Screenshot + ข้อความ Error เต็มๆ + ชื่อ Task ที่รัน + วันเวลา",
+        bg=(0xef, 0xf6, 0xff))
 
 
-def main() -> None:
-    m = Manual()
-    m.build()
-    m.doc.save(OUT)
-    print(f"✅ บันทึกไฟล์: {OUT}")
+print("Reading source document...")
+doc = clone_and_rename(SRC)
 
+print("Appending new chapters...")
+build(doc)
 
-if __name__ == "__main__":
-    main()
+print(f"Saving → {OUT}")
+doc.save(OUT)
+sz = os.path.getsize(OUT)
+print(f"Done! {sz:,} bytes")
