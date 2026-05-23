@@ -19,7 +19,7 @@ import anthropic
 import requests
 from github import Github
 
-# ── Paths & secrets ──────────────────────────────────────────────
+# ── Paths & secrets ────────────────────────────────────────────────────────────
 REPO_ROOT    = Path(__file__).parent.parent
 AGENT_DIR    = Path(__file__).parent
 SEEN_FILE    = AGENT_DIR / "seen_errors.json"
@@ -34,7 +34,7 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 MODEL             = "claude-opus-4-7"
 OPENROUTER_MODEL  = "anthropic/claude-sonnet-4-5"  # fallback via OpenRouter
 
-# ── Build codebase context (cached in prompt) ──────────────────────────
+# ── Build codebase context (cached in prompt) ──────────────────────────────────
 def _build_codebase() -> str:
     parts = []
     for p in GS_FILES:
@@ -81,7 +81,7 @@ JSON schema when NOT fixable:
 }}"""
 
 
-# ── Deduplication ───────────────────────────────────────────────────────
+# ── Deduplication ──────────────────────────────────────────────────────────────
 def _load_seen() -> set:
     if SEEN_FILE.exists():
         return set(json.loads(SEEN_FILE.read_text(encoding="utf-8")))
@@ -98,7 +98,7 @@ def _fingerprint(err: dict) -> str:
     return hashlib.md5(key.encode()).hexdigest()
 
 
-# ── GAS polling ─────────────────────────────────────────────────────────
+# ── GAS polling ────────────────────────────────────────────────────────────────
 def _fetch_errors() -> list:
     resp = requests.post(
         GAS_URL,
@@ -112,7 +112,7 @@ def _fetch_errors() -> list:
     return body.get("data", {}).get("errors", [])
 
 
-# ── Claude analysis ──────────────────────────────────────────────────────
+# ── Claude analysis ────────────────────────────────────────────────────────────
 def _parse_json(text: str) -> dict | None:
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if m:
@@ -190,7 +190,7 @@ def _analyze(client: anthropic.Anthropic, error: dict) -> dict | None:
         return _analyze_openrouter(error)
 
 
-# ── GitHub PR creation ─────────────────────────────────────────────────────
+# ── GitHub PR creation ─────────────────────────────────────────────────────────
 def _create_pr(gh: Github, analysis: dict, error: dict) -> str | None:
     repo = gh.get_repo(GITHUB_REPO)
 
@@ -245,7 +245,7 @@ def _create_pr(gh: Github, analysis: dict, error: dict) -> str | None:
     return pr.html_url
 
 
-# ── Main ───────────────────────────────────────────────────────────────────
+# ── Main ───────────────────────────────────────────────────────────────────────
 def main() -> None:
     print(f"[{datetime.now(timezone.utc).isoformat()}] AI bugfix agent starting")
 
