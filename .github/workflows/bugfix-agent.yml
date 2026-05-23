@@ -33,11 +33,12 @@ jobs:
 
       - name: Run AI bugfix agent
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GAS_URL:           ${{ secrets.GAS_URL }}
-          GAS_API_KEY:       ${{ secrets.GAS_API_KEY }}
-          GITHUB_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GAS_URL:            ${{ secrets.GAS_URL }}
+          GAS_API_KEY:        ${{ secrets.GAS_API_KEY }}
+          GITHUB_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY:  ${{ github.repository }}
         run: python bugfix_agent/agent.py
 
       - name: Commit updated seen_errors.json

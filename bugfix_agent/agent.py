@@ -25,12 +25,14 @@ AGENT_DIR    = Path(__file__).parent
 SEEN_FILE    = AGENT_DIR / "seen_errors.json"
 GS_FILES     = sorted(REPO_ROOT.glob("*.gs"))
 
-GAS_URL      = os.environ.get("GAS_URL", "")
-GAS_API_KEY  = os.environ.get("GAS_API_KEY", "")
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-GITHUB_REPO  = os.environ.get("GITHUB_REPOSITORY", "thanadolsaelem/mtech")
+GAS_URL           = os.environ.get("GAS_URL", "")
+GAS_API_KEY       = os.environ.get("GAS_API_KEY", "")
+GITHUB_TOKEN      = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_REPO       = os.environ.get("GITHUB_REPOSITORY", "thanadolsaelem/mtech")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
-MODEL = "claude-opus-4-7"
+MODEL             = "claude-opus-4-7"
+OPENROUTER_MODEL  = "anthropic/claude-sonnet-4-5"  # fallback via OpenRouter
 
 # ── Build codebase context (cached in prompt) ──────────────────────────────────
 def _build_codebase() -> str:
@@ -111,8 +113,22 @@ def _fetch_errors() -> list:
 
 
 # ── Claude analysis ────────────────────────────────────────────────────────────
-def _analyze(client: anthropic.Anthropic, error: dict) -> dict | None:
-    user_msg = (
+def _parse_json(text: str) -> dict | None:
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if m:
+        text = m.group(1)
+    m2 = re.search(r"\{.*\}", text, re.DOTALL)
+    if m2:
+        text = m2.group(0)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        print(f"    ⚠ JSON parse failed: {e} — raw: {text[:300]}")
+        return None
+
+
+def _user_msg(error: dict) -> str:
+    return (
         "Error log entry to diagnose and fix:\n"
         f"  part:  {error.get('part', '')}\n"
         f"  sheet: {error.get('sheet', '')}\n"
@@ -123,44 +139,55 @@ def _analyze(client: anthropic.Anthropic, error: dict) -> dict | None:
         "Return ONLY the JSON object."
     )
 
+
+def _analyze_anthropic(client: anthropic.Anthropic, error: dict) -> dict | None:
     resp = client.messages.create(
         model=MODEL,
         max_tokens=4096,
         thinking={"type": "adaptive"},
-        system=[
-            {
-                "type": "text",
-                "text": _SYSTEM,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
-        messages=[{"role": "user", "content": user_msg}],
+        system=[{"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": _user_msg(error)}],
     )
-
-    text = ""
-    for block in resp.content:
-        if block.type == "text":
-            text = block.text.strip()
-            break
-
+    text = next((b.text.strip() for b in resp.content if b.type == "text"), "")
     if not text:
-        print("    ⚠ Claude returned no text block")
+        print("    ⚠ Anthropic returned no text block")
         return None
+    return _parse_json(text)
 
-    # Strip accidental markdown fences
-    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-    if m:
-        text = m.group(1)
-    # Sometimes leading/trailing garbage
-    m2 = re.search(r"\{.*\}", text, re.DOTALL)
-    if m2:
-        text = m2.group(0)
 
+def _analyze_openrouter(error: dict) -> dict | None:
+    if not OPENROUTER_API_KEY:
+        print("    ⚠ OPENROUTER_API_KEY not set — cannot fall back")
+        return None
+    print("    ↩ Falling back to OpenRouter …")
+    resp = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/ThanadolSaelem/MTECH",
+        },
+        json={
+            "model": OPENROUTER_MODEL,
+            "max_tokens": 4096,
+            "messages": [
+                {"role": "system", "content": _SYSTEM},
+                {"role": "user",   "content": _user_msg(error)},
+            ],
+        },
+        timeout=120,
+    )
+    resp.raise_for_status()
+    text = resp.json()["choices"][0]["message"]["content"].strip()
+    return _parse_json(text)
+
+
+def _analyze(client: anthropic.Anthropic, error: dict) -> dict | None:
     try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
-        print(f"    ⚠ JSON parse failed: {e} — raw: {text[:300]}")
-        return None
+        return _analyze_anthropic(client, error)
+    except anthropic.APIError as exc:
+        print(f"    ⚠ Anthropic API error ({type(exc).__name__}: {exc}) — trying OpenRouter")
+        return _analyze_openrouter(error)
 
 
 # ── GitHub PR creation ─────────────────────────────────────────────────────────
@@ -222,10 +249,13 @@ def _create_pr(gh: Github, analysis: dict, error: dict) -> str | None:
 def main() -> None:
     print(f"[{datetime.now(timezone.utc).isoformat()}] AI bugfix agent starting")
 
-    for var in ("GAS_URL", "GAS_API_KEY", "GITHUB_TOKEN", "ANTHROPIC_API_KEY"):
+    for var in ("GAS_URL", "GAS_API_KEY", "GITHUB_TOKEN"):
         if not os.environ.get(var):
             print(f"  ✗ Missing env var: {var}")
             sys.exit(1)
+    if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("OPENROUTER_API_KEY"):
+        print("  ✗ Must set at least one of: ANTHROPIC_API_KEY, OPENROUTER_API_KEY")
+        sys.exit(1)
 
     seen = _load_seen()
     print(f"  Seen fingerprints: {len(seen)}")
