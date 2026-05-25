@@ -7,6 +7,7 @@ GitHub PRs automatically for human review.
 """
 
 import hashlib
+import html as _html
 import json
 import os
 import re
@@ -32,7 +33,7 @@ GITHUB_REPO       = os.environ.get("GITHUB_REPOSITORY", "thanadolsaelem/mtech")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 MODEL             = "claude-opus-4-7"
-OPENROUTER_MODEL  = "anthropic/claude-sonnet-4-5"  # fallback via OpenRouter
+OPENROUTER_MODEL  = "nvidia/nemotron-3-super-120b-a12b:free"  # fallback via OpenRouter
 
 # ── Build codebase context (cached in prompt) ──────────────────────────────────
 def _build_codebase() -> str:
@@ -44,7 +45,7 @@ def _build_codebase() -> str:
 _CODEBASE = _build_codebase()
 
 _SYSTEM = f"""You are an expert Google Apps Script (GAS) developer specializing in Thai \
-accounting automation. The system (FinFin / MTECH) automates document creation in PEAK \
+acounting automation. The system (FinFin / MTECH) automates document creation in PEAK \
 accounting software using Google Sheets as the data source. It processes receipts (Part 1 \
 tax invoice), invoices (Part 2), late fees (Part 3), credit notes (Part 4), and statement \
 matching (Part 5).
@@ -96,6 +97,46 @@ def _save_seen(seen: set) -> None:
 def _fingerprint(err: dict) -> str:
     key = f"{err.get('part','')}:{err.get('inv','')}:{err.get('msg','')}"
     return hashlib.md5(key.encode()).hexdigest()
+
+
+# ── Telegram notification ──────────────────────────────────────────────────────
+def _send_telegram(new_errors: list) -> None:
+    token   = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        return
+
+    now = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+    lines = [
+        f"\U0001f6a8 <b>MTECH — Error ใหม่ {len(new_errors)} รายการ</b>",
+        f"<i>{now}</i>",
+        "",
+    ]
+    for e in new_errors[:10]:
+        ts   = str(e.get("ts", ""))[:16].replace("T", " ")
+        part = _html.escape(str(e.get("part", "")))
+        inv  = _html.escape(str(e.get("inv",  "")))
+        msg  = _html.escape(str(e.get("msg",  ""))[:200])
+        lines.append(f"• <code>[{part}]</code> {inv}")
+        lines.append(f"  {msg}")
+        lines.append(f"  <i>{ts}</i>")
+        lines.append("")
+    if len(new_errors) > 10:
+        lines.append(f"<i>... และอีก {len(new_errors) - 10} รายการ</i>")
+    lines.append("\U0001f916 กำลังวิเคราะห์และสร้าง PR อัตโนมัติ...")
+
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": "\n".join(lines), "parse_mode": "HTML"},
+            timeout=10,
+        )
+        if r.ok:
+            print(f"  ✓ Telegram sent ({len(new_errors)} errors)")
+        else:
+            print(f"  ⚠ Telegram failed: {r.status_code} {r.text[:100]}")
+    except Exception as exc:
+        print(f"  ⚠ Telegram error: {exc}")
 
 
 # ── GAS polling ────────────────────────────────────────────────────────────────
@@ -273,6 +314,8 @@ def main() -> None:
     if not new_errors:
         print("  Nothing to do.")
         return
+
+    _send_telegram(new_errors)
 
     client = anthropic.Anthropic()
     gh     = Github(GITHUB_TOKEN)
