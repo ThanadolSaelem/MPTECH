@@ -32,7 +32,7 @@ GITHUB_REPO       = os.environ.get("GITHUB_REPOSITORY", "thanadolsaelem/mtech")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 MODEL             = "claude-opus-4-7"
-OPENROUTER_MODEL  = "anthropic/claude-sonnet-4-5"  # fallback via OpenRouter
+OPENROUTER_MODEL  = "nvidia/nemotron-3-super-120b-a12b:free"  # fallback via OpenRouter
 
 # ── Build codebase context (cached in prompt) ──────────────────────────────────
 def _build_codebase() -> str:
