@@ -39,6 +39,8 @@ jobs:
           GAS_API_KEY:        ${{ secrets.GAS_API_KEY }}
           GITHUB_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY:  ${{ github.repository }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python bugfix_agent/agent.py
 
       - name: Commit updated seen_errors.json

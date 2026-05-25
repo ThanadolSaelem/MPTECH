@@ -7,6 +7,7 @@ GitHub PRs automatically for human review.
 """
 
 import hashlib
+import html as _html
 import json
 import os
 import re
@@ -96,6 +97,46 @@ def _save_seen(seen: set) -> None:
 def _fingerprint(err: dict) -> str:
     key = f"{err.get('part','')}:{err.get('inv','')}:{err.get('msg','')}"
     return hashlib.md5(key.encode()).hexdigest()
+
+
+# ── Telegram notification ──────────────────────────────────────────────────────
+def _send_telegram(new_errors: list) -> None:
+    token   = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        return
+
+    now = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+    lines = [
+        f"\U0001f6a8 <b>MTECH — Error ใหม่ {len(new_errors)} รายการ</b>",
+        f"<i>{now}</i>",
+        "",
+    ]
+    for e in new_errors[:10]:
+        ts   = str(e.get("ts", ""))[:16].replace("T", " ")
+        part = _html.escape(str(e.get("part", "")))
+        inv  = _html.escape(str(e.get("inv",  "")))
+        msg  = _html.escape(str(e.get("msg",  ""))[:200])
+        lines.append(f"• <code>[{part}]</code> {inv}")
+        lines.append(f"  {msg}")
+        lines.append(f"  <i>{ts}</i>")
+        lines.append("")
+    if len(new_errors) > 10:
+        lines.append(f"<i>... และอีก {len(new_errors) - 10} รายการ</i>")
+    lines.append("\U0001f916 กำลังวิเคราะห์และสร้าง PR อัตโนมัติ...")
+
+    try:
+        r = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": "\n".join(lines), "parse_mode": "HTML"},
+            timeout=10,
+        )
+        if r.ok:
+            print(f"  ✓ Telegram sent ({len(new_errors)} errors)")
+        else:
+            print(f"  ⚠ Telegram failed: {r.status_code} {r.text[:100]}")
+    except Exception as exc:
+        print(f"  ⚠ Telegram error: {exc}")
 
 
 # ── GAS polling ────────────────────────────────────────────────────────────────
@@ -273,6 +314,8 @@ def main() -> None:
     if not new_errors:
         print("  Nothing to do.")
         return
+
+    _send_telegram(new_errors)
 
     client = anthropic.Anthropic()
     gh     = Github(GITHUB_TOKEN)
