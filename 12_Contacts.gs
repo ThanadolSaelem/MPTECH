@@ -19,17 +19,18 @@ const CONTACT_SYNC_SAVE_N_  = 20;               // write cache every N new conta
 const CONTACT_SYNC_MAX_MS_  = 4.5 * 60 * 1000; // 4.5 min soft limit per call
 
 // ─── Thai name parsing ───────────────────────────────────────────────────────
-// PEAK prefixNameType mapping (educated guess — verify via debugCreateTestContacts)
-//   0 = ไม่มี, 1 = นาย, 2 = นาง, 3 = น.ส./นางสาว, 4 = ด.ช., 5 = ด.ญ.
+// PEAK prefixNameType mapping (verified: 1=นาย ✅, 2=นาง ✅, 3=คุณ ✅; 4=น.ส. ยืนยันด้วย debugCreateTestContacts)
+//   0 = ไม่มี, 1 = นาย, 2 = นาง, 3 = คุณ, 4 = น.ส./นางสาว, 5 = ด.ช., 6 = ด.ญ.
 const THAI_PREFIXES_ = [
-  { re: /^น\.ส\.\s*/,     code: 3, label: 'น.ส.' },
-  { re: /^นางสาว\s*/,     code: 3, label: 'นางสาว' },
+  { re: /^น\.ส\.\s*/,     code: 4, label: 'น.ส.' },
+  { re: /^นางสาว\s*/,     code: 4, label: 'นางสาว' },
   { re: /^นาง(?!สาว)\s*/, code: 2, label: 'นาง' },
   { re: /^นาย\s*/,        code: 1, label: 'นาย' },
-  { re: /^ด\.ช\.\s*/,     code: 4, label: 'ด.ช.' },
-  { re: /^ด\.ญ\.\s*/,     code: 5, label: 'ด.ญ.' },
-  { re: /^เด็กชาย\s*/,    code: 4, label: 'เด็กชาย' },
-  { re: /^เด็กหญิง\s*/,   code: 5, label: 'เด็กหญิง' },
+  { re: /^คุณ\s*/,        code: 3, label: 'คุณ' },
+  { re: /^ด\.ช\.\s*/,     code: 5, label: 'ด.ช.' },
+  { re: /^ด\.ญ\.\s*/,     code: 6, label: 'ด.ญ.' },
+  { re: /^เด็กชาย\s*/,    code: 5, label: 'เด็กชาย' },
+  { re: /^เด็กหญิง\s*/,   code: 6, label: 'เด็กหญิง' },
 ];
 
 function _parseThaiName_(fullName) {
@@ -75,6 +76,10 @@ function ensureContactsBatch_(codeNameMap) {
 
     const displayName = (String(name || '').trim() || `สัญญา ${code}`).slice(0, 255);
     const parsed = _parseThaiName_(displayName);
+    // Normalize: "prefix firstName lastName" with spaces so PEAK's first-space split gives clean firstName
+    const peakName = parsed.prefixNameType > 0
+      ? `${parsed.prefixLabel} ${parsed.firstName}${parsed.lastName ? ' ' + parsed.lastName : ''}`.trim()
+      : displayName;
     let confirmed = false;
 
     let postRes;
@@ -84,7 +89,7 @@ function ensureContactsBatch_(codeNameMap) {
         PeakContacts: {
           contacts: [{
             code,
-            name:           displayName,
+            name:           peakName,
             type:           5,
             prefixNameType: parsed.prefixNameType,
             firstName:      parsed.firstName,
@@ -376,9 +381,10 @@ function probeContactUpdate() {
 function debugCreateTestContacts() {
   const ts = Date.now();
   const tests = [
-    { code: `TST-NAI-${ts}`,  name: 'นายทดสอบ หนึ่ง',   expected: 'นาย (code=1)' },
-    { code: `TST-NSA-${ts}`,  name: 'น.ส.ทดสอบ สอง',    expected: 'น.ส. (code=3)' },
-    { code: `TST-NAA-${ts}`,  name: 'นางทดสอบ สาม',     expected: 'นาง (code=2)' },
+    { code: `TST-NAI-${ts}`,  name: 'นายทดสอบ หนึ่ง',   expected: 'นาย (code=1) ✅' },
+    { code: `TST-NAA-${ts}`,  name: 'นางทดสอบ สอง',     expected: 'นาง (code=2) ✅' },
+    { code: `TST-KHN-${ts}`,  name: 'คุณทดสอบ สาม',     expected: 'คุณ (code=3) ✅' },
+    { code: `TST-NSA-${ts}`,  name: 'น.ส.ทดสอบ สี่',    expected: 'น.ส. (code=4) — ยืนยัน dropdown ใน PEAK' },
   ];
 
   // ล้าง cache เพื่อให้ POST จริง ไม่ใช่ skip
@@ -395,7 +401,7 @@ function debugCreateTestContacts() {
     Logger.log(`=== expected: ${t.expected} ===`);
     Logger.log(JSON.stringify(res, null, 2));
   }
-  Logger.log('--- เข้า PEAK UI → ผู้ติดต่อ → ค้นหา "TST-" → เช็ค dropdown คำนำหน้า + firstName/lastName');
+  Logger.log('--- เข้า PEAK UI → ผู้ติดต่อ → ค้นหา "TST-" → เช็ค dropdown คำนำหน้า (TST-NSA ควรเป็น น.ส.)');
 }
 
 function testGetContact() {
