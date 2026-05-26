@@ -187,9 +187,103 @@ function sheetNameCandidates_(prefix, mm, yyyy) {
   ];
 }
 
+// ─── Sheet Type Signatures (content-based detection) ────────────────────────
+// ใช้เมื่อ user เปลี่ยนชื่อ sheet ออกจาก prefix เดิม
+// เช่น "Receipt03.2026" → "RE03.2026" → ดูจาก header row ว่ามีคอลัมน์ครบหรือไม่
+const SHEET_SIGNATURES = {
+  Receipt: {
+    headerRows: [2],
+    requiredTokens: ['เลขที่สัญญา', 'ประเภทการชำระ', 'ใบเสร็จรับเงิน'],
+  },
+  Sum: {
+    headerRows: [2],
+    requiredTokens: ['ยอดทำสัญญา', 'จำนวนงวด', 'ผ่อนงวดละ'],
+  },
+  SCB: {
+    headerRows: [1, 6],
+    requiredTokensAny: [
+      ['Description', 'Deposit'],
+      ['รายการ', 'ยอดเงินเข้า'],
+      ['รายการ', 'จำนวนเงิน'],
+    ],
+  },
+};
+
+function _sheetHeaderMatchesSig_(sheet, sig) {
+  const lastCol = sheet.getLastColumn();
+  if (lastCol < 1) return false;
+  const lastRow = sheet.getLastRow();
+  for (const hr of sig.headerRows) {
+    if (lastRow < hr) continue;
+    try {
+      const headerStr = sheet.getRange(hr, 1, 1, lastCol)
+                              .getValues()[0]
+                              .map(v => String(v))
+                              .join(' ');
+      if (sig.requiredTokens && sig.requiredTokens.every(t => headerStr.includes(t))) {
+        return true;
+      }
+      if (sig.requiredTokensAny &&
+          sig.requiredTokensAny.some(group => group.every(t => headerStr.includes(t)))) {
+        return true;
+      }
+    } catch (_) { /* skip protected/empty sheets */ }
+  }
+  return false;
+}
+
+/**
+ * ค้นหา sheet โดยตรวจจากเนื้อหา header — ใช้เมื่อชื่อ sheet ไม่ตรง prefix
+ * เช่น customer เปลี่ยน "Receipt03.2026" → "RE03.2026"
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss
+ * @param {string} type  "Receipt" | "Sum" | "SCB"
+ * @param {string=} monthStr  "03.2026" (optional — ถ้าระบุจะกรองชื่อให้มีเลขเดือน/ปี ตรงด้วย)
+ * @returns {GoogleAppsScript.Spreadsheet.Sheet|null}
+ */
+function findSheetByContent_(ss, type, monthStr) {
+  const sig = SHEET_SIGNATURES[type];
+  if (!sig) return null;
+
+  let mm, yyyy;
+  if (monthStr) {
+    const parts = String(monthStr).match(/(\d{1,2})[.\-\/](\d{4})/);
+    if (parts) { mm = parts[1].padStart(2, '0'); yyyy = parts[2]; }
+  }
+
+  let best = null, bestDate = null;
+  for (const sheet of ss.getSheets()) {
+    if (!_sheetHeaderMatchesSig_(sheet, sig)) continue;
+
+    const nameDigits = sheet.getName().replace(/[^0-9]/g, ' ');
+
+    if (mm && yyyy) {
+      // เดือนต้องตรง
+      if (!nameDigits.includes(mm) || !nameDigits.includes(yyyy)) continue;
+      return sheet;
+    }
+
+    // ไม่ระบุเดือน → เลือก sheet ที่มีเลขเดือน/ปีใหม่สุด
+    const nums = nameDigits.trim().split(/\s+/).filter(Boolean);
+    let sheetYY, sheetMM;
+    for (const n of nums) {
+      if (n.length === 4 && Number(n) > 2000) sheetYY = Number(n);
+      if (n.length <= 2 && Number(n) >= 1 && Number(n) <= 12) sheetMM = Number(n);
+    }
+    if (sheetYY && sheetMM) {
+      const d = new Date(sheetYY, sheetMM - 1, 1);
+      if (!bestDate || d > bestDate) { bestDate = d; best = sheet; }
+    } else if (!best) {
+      best = sheet;
+    }
+  }
+  return best;
+}
+
 /**
  * ค้นหา Sheet แบบ robust — ลอง candidate patterns ทั้งหมด
  * แล้ว fallback fuzzy (ชื่อมี prefix + mm + yyyy)
+ * แล้ว fallback content-based (header ของ sheet ตรง signature)
  * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss
  * @param {string} prefix  เช่น "Receipt", "Sum", "SCB"
  * @param {string} monthStr  เช่น "03.2026"
@@ -216,6 +310,10 @@ function findSheetRobust(ss, prefix, monthStr) {
       return sheet;
     }
   }
+
+  // 3) Content-based: ตรวจจาก header row (รองรับ user เปลี่ยนชื่อ sheet)
+  const byContent = findSheetByContent_(ss, prefix, `${mm}.${yyyy}`);
+  if (byContent) return byContent;
 
   const tried = sheetNameCandidates_(prefix, mm, yyyy).join(', ');
   throw new Error(`ไม่พบ Sheet "${prefix}*${mm}*${yyyy}" — ลองแล้ว: ${tried}`);
@@ -279,6 +377,11 @@ function findLatestSheetByPrefix(ss, prefix) {
   }
 
   if (best) return best;
+
+  // Fallback: content-based (sheet ถูกเปลี่ยนชื่อจาก prefix เดิม)
+  const byContent = findSheetByContent_(ss, prefix, null);
+  if (byContent) return byContent;
+
   throw new Error(`ไม่พบ Sheet ที่มี prefix "${prefix}" ใน Spreadsheet`);
 }
 
