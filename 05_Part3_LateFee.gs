@@ -24,7 +24,7 @@ function runPart3_LateFee(statementSheetName) {
   statementSheetName = statementSheetName || getCurrentStatementSheetName();
 
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
-  const sheet = ss.getSheetByName(statementSheetName);
+  const sheet = getSheetByNameSmart_(ss, statementSheetName);
   if (!sheet) throw new Error(`ไม่พบ Sheet "${statementSheetName}"`);
 
   const fmt = detectStatementFormat_(sheet);
