@@ -267,6 +267,55 @@ function testFixOneContact() {
   Logger.log(`PUT response: ${JSON.stringify(putRes).slice(0, 400)}`);
 }
 
+/**
+ * Probe endpoints — หา endpoint ที่ใช้อัปเดต contact ได้จริง
+ * รันแล้วดู log → มองหา HTTP 200 ที่ response มี id หรือ resCode=200
+ * จากนั้นไปเช็คใน PEAK UI ว่าชื่ออัปเดตจริงหรือไม่
+ */
+function probeContactUpdate() {
+  const invCode = '1754102677';  // เปลี่ยนเป็นรหัสจริงในชีท
+  const newName = 'นายธัชกร โพธิจักร์ (probe)';
+
+  const getRes = callPeakAPI('get', '/contacts', null, { code: invCode });
+  const c = getRes.PeakContacts.contacts[0];
+  if (!c) { Logger.log('ไม่พบ contact'); return; }
+  Logger.log(`Probing for [${invCode}] id=${c.id} oldName="${c.name}"`);
+
+  const fullBody = Object.assign({}, c, { name: newName });
+  const minBody  = { id: c.id, code: c.code, name: newName, type: c.type };
+
+  const candidates = [
+    { method: 'put',   path: `/contacts/${c.id}`,         body: { PeakContacts: { contacts: [fullBody] } } },
+    { method: 'put',   path: `/contacts/${c.id}`,         body: fullBody },
+    { method: 'post',  path: `/contacts/${c.id}`,         body: { PeakContacts: { contacts: [fullBody] } } },
+    { method: 'put',   path: `/contacts/${invCode}`,      body: { PeakContacts: { contacts: [fullBody] } } },
+    { method: 'put',   path: '/contacts/update',          body: { PeakContacts: { contacts: [fullBody] } } },
+    { method: 'post',  path: '/contacts/update',          body: { PeakContacts: { contacts: [fullBody] } } },
+    { method: 'patch', path: `/contacts/${c.id}`,         body: { PeakContacts: { contacts: [fullBody] } } },
+    { method: 'put',   path: '/contacts',                 body: { PeakContacts: { contacts: [minBody]  } } },
+  ];
+
+  for (const cand of candidates) {
+    try {
+      const url = CONFIG.BASE_URL + cand.path;
+      const res = UrlFetchApp.fetch(url, {
+        method:             cand.method,
+        headers:            buildHeaders(),
+        contentType:        'application/json',
+        payload:            JSON.stringify(cand.body),
+        muteHttpExceptions: true,
+      });
+      const code = res.getResponseCode();
+      const body = res.getContentText().slice(0, 250);
+      Logger.log(`${cand.method.toUpperCase()} ${cand.path} → HTTP ${code}: ${body}`);
+    } catch (e) {
+      Logger.log(`${cand.method.toUpperCase()} ${cand.path} → ERROR: ${e.message}`);
+    }
+    Utilities.sleep(500);
+  }
+  Logger.log('— Probe เสร็จ — เข้าไปเช็คใน PEAK UI ว่าชื่อ contact เปลี่ยนเป็น "...(probe)" หรือไม่');
+}
+
 function testGetContact() {
   const invCode = '1752485138';
   const res = callPeakAPI('get', '/contacts', null, { code: invCode });
