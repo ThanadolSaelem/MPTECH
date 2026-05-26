@@ -19,15 +19,14 @@ const CONTACT_SYNC_SAVE_N_  = 20;               // write cache every N new conta
 const CONTACT_SYNC_MAX_MS_  = 4.5 * 60 * 1000; // 4.5 min soft limit per call
 
 // ─── Thai name parsing ───────────────────────────────────────────────────────
-// PEAK prefixNameType mapping (verified ✅ all 4 codes confirmed via debugCreateTestContacts)
-// PEAK dropdown: ไม่มี / คุณ / นาย / นาง / นางสาว / อื่น ๆ (ไม่มี ด.ช./ด.ญ.)
-//   0 = ไม่มี, 1 = นาย ✅, 2 = นาง ✅, 3 = คุณ ✅, 4 = น.ส./นางสาว ✅
+// PEAK prefixNameType mapping — verified ✅ codes เรียงตาม dropdown (ไม่นับ "ไม่มี")
+//   0 = ไม่มี, 1 = คุณ, 2 = นาย, 3 = นาง, 4 = นางสาว/น.ส.
 const THAI_PREFIXES_ = [
   { re: /^น\.ส\.\s*/,     code: 4, label: 'น.ส.' },
   { re: /^นางสาว\s*/,     code: 4, label: 'นางสาว' },
-  { re: /^นาง(?!สาว)\s*/, code: 2, label: 'นาง' },
-  { re: /^นาย\s*/,        code: 1, label: 'นาย' },
-  { re: /^คุณ\s*/,        code: 3, label: 'คุณ' },
+  { re: /^นาง(?!สาว)\s*/, code: 3, label: 'นาง' },
+  { re: /^นาย\s*/,        code: 2, label: 'นาย' },
+  { re: /^คุณ\s*/,        code: 1, label: 'คุณ' },
 ];
 
 function _parseThaiName_(fullName) {
@@ -73,9 +72,11 @@ function ensureContactsBatch_(codeNameMap) {
 
     const displayName = (String(name || '').trim() || `สัญญา ${code}`).slice(0, 255);
     const parsed = _parseThaiName_(displayName);
-    // Normalize: "prefix firstName lastName" with spaces so PEAK's first-space split gives clean firstName
+    // ส่ง name แบบไม่มี prefix นำหน้า — PEAK split name ตาม space แรกเป็น firstName/lastName
+    // ถ้ามี prefix อยู่ใน name PEAK จะเอา prefix ไปเป็น firstName ทำให้ ชื่อจริง = "นาย" (ผิด)
+    // prefix อยู่ใน dropdown (prefixNameType) แทน
     const peakName = parsed.prefixNameType > 0
-      ? `${parsed.prefixLabel} ${parsed.firstName}${parsed.lastName ? ' ' + parsed.lastName : ''}`.trim()
+      ? `${parsed.firstName}${parsed.lastName ? ' ' + parsed.lastName : ''}`.trim()
       : displayName;
     let confirmed = false;
 
@@ -378,10 +379,10 @@ function probeContactUpdate() {
 function debugCreateTestContacts() {
   const ts = Date.now();
   const tests = [
-    { code: `TST-NAI-${ts}`,  name: 'นายทดสอบ หนึ่ง',   expected: 'นาย (code=1) ✅' },
-    { code: `TST-NAA-${ts}`,  name: 'นางทดสอบ สอง',     expected: 'นาง (code=2) ✅' },
-    { code: `TST-KHN-${ts}`,  name: 'คุณทดสอบ สาม',     expected: 'คุณ (code=3) ✅' },
-    { code: `TST-NSA-${ts}`,  name: 'น.ส.ทดสอบ สี่',    expected: 'น.ส./นางสาว (code=4) ✅' },
+    { code: `TST-KHN-${ts}`,  name: 'คุณทดสอบ หนึ่ง',   expected: 'คุณ (code=1)' },
+    { code: `TST-NAI-${ts}`,  name: 'นายทดสอบ สอง',     expected: 'นาย (code=2)' },
+    { code: `TST-NAA-${ts}`,  name: 'นางทดสอบ สาม',     expected: 'นาง (code=3)' },
+    { code: `TST-NSA-${ts}`,  name: 'น.ส.ทดสอบ สี่',    expected: 'นางสาว (code=4)' },
   ];
 
   // ล้าง cache เพื่อให้ POST จริง ไม่ใช่ skip
@@ -398,7 +399,9 @@ function debugCreateTestContacts() {
     Logger.log(`=== expected: ${t.expected} ===`);
     Logger.log(JSON.stringify(res, null, 2));
   }
-  Logger.log('--- เข้า PEAK UI → ผู้ติดต่อ → ค้นหา "TST-" → เช็ค dropdown คำนำหน้า (TST-NSA ควรเป็น น.ส.)');
+  Logger.log('--- เช็ค 2 จุด:');
+  Logger.log('--- 1. PEAK UI → ผู้ติดต่อ → ค้นหา "TST-" → คลิกเข้าไป → ดู: คำนำหน้า ตรง expected, ชื่อจริง=ทดสอบ, นามสกุล=หนึ่ง/สอง/สาม/สี่');
+  Logger.log('--- 2. สร้าง invoice ทดสอบจาก contact นี้ → ดูใน list ว่ามี prefix นำหน้าหรือเปล่า (สำคัญ!)');
 }
 
 function testGetContact() {
