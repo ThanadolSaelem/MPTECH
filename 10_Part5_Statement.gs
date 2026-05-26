@@ -18,10 +18,10 @@ function runPart5_StatementMatch(statementSheetName, receiptSheetName) {
 
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
 
-  const stmtSheet = ss.getSheetByName(statementSheetName);
+  const stmtSheet = getSheetByNameSmart_(ss, statementSheetName);
   if (!stmtSheet) throw new Error(`ไม่พบ Sheet "${statementSheetName}"`);
 
-  const receiptSheet = ss.getSheetByName(receiptSheetName);
+  const receiptSheet = getSheetByNameSmart_(ss, receiptSheetName);
   if (!receiptSheet) throw new Error(`ไม่พบ Sheet "${receiptSheetName}"`);
 
   toast(`⏳ Match Statement ↔ ${receiptSheetName}...`, 'FinFin');

@@ -320,6 +320,30 @@ function findSheetRobust(ss, prefix, monthStr) {
 }
 
 /**
+ * ดึง Sheet ตามชื่อ — รองรับ user เปลี่ยนชื่อ sheet
+ *   1) ลองตรงก่อน (fast path)
+ *   2) Parse prefix+month → findSheetRobust (มี content-based fallback ในตัว)
+ * @param {GoogleAppsScript.Spreadsheet.Spreadsheet} ss
+ * @param {string} sheetName  ชื่อเต็ม เช่น "Sum02.2026", "Receipt03.2026"
+ * @returns {GoogleAppsScript.Spreadsheet.Sheet|null}
+ */
+function getSheetByNameSmart_(ss, sheetName) {
+  if (!sheetName) return null;
+  const direct = ss.getSheetByName(sheetName);
+  if (direct) return direct;
+  const m = String(sheetName).match(/^([A-Za-z]+)[.\-]?(\d{1,2}[.\-\/]\d{4}|\d{4}[.\-\/]\d{1,2})$/);
+  if (!m) return null;
+  try {
+    const monthStr = m[2]
+      .replace(/[.\-\/](\d{4})$/, '.$1')
+      .replace(/^(\d{4})[.\-\/](\d{1,2})$/, '$2.$1');
+    return findSheetRobust(ss, m[1], monthStr);
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
  * ดึง Sheet ตารางรับชำระตามชื่อ (เช่น "Receipt03.2026")
  * รองรับทุก format โดย findSheetRobust
  * @param {string} sheetName  ชื่อเต็ม หรือ prefix+MM.YYYY ก็ได้
@@ -327,12 +351,8 @@ function findSheetRobust(ss, prefix, monthStr) {
  */
 function getPaymentSheet(sheetName) {
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
-  // ลองตรงก่อน (fast path)
-  const direct = ss.getSheetByName(sheetName);
-  if (direct) return direct;
-  // ถ้าไม่เจอ → parse prefix + month แล้วใช้ robust search
-  const m = sheetName.match(/^([A-Za-z]+)[.\-]?(\d{1,2}[.\-\/]\d{4}|\d{4}[.\-\/]\d{1,2})$/);
-  if (m) return findSheetRobust(ss, m[1], m[2].replace(/[.\-\/](\d{4})$/, '.$1').replace(/^(\d{4})[.\-\/](\d{1,2})$/, '$2.$1'));
+  const sheet = getSheetByNameSmart_(ss, sheetName);
+  if (sheet) return sheet;
   throw new Error(`ไม่พบ Sheet: "${sheetName}"`);
 }
 

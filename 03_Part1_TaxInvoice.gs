@@ -22,7 +22,7 @@ function runPart1_TaxInvoice(sheetName) {
   preFlightChecks_();
   sheetName = sheetName || getCurrentReceiptSheetName();
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
-  const sheet = ss.getSheetByName(sheetName);
+  const sheet = getSheetByNameSmart_(ss, sheetName);
   if (!sheet) throw new Error(`ไม่พบ Sheet "${sheetName}"`);
 
   ensureReceiptHeader_(sheet);
@@ -407,7 +407,7 @@ function debugPart1Row() {
   const dataRowIndex = 0;
 
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
-  const sheet = ss.getSheetByName(sheetName);
+  const sheet = getSheetByNameSmart_(ss, sheetName);
   if (!sheet) { Logger.log('ไม่พบ sheet: ' + sheetName); return; }
 
   const data = getReceiptData_(sheet);
@@ -450,7 +450,7 @@ function runPart1_ServiceFee(sheetName) {
   preFlightChecks_();
   sheetName = sheetName || getCurrentSumSheetName();
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
-  const sheet = ss.getSheetByName(sheetName);
+  const sheet = getSheetByNameSmart_(ss, sheetName);
   if (!sheet) throw new Error(`ไม่พบ Sheet "${sheetName}"`);
 
   toast(`⏳ Part 1 ค่าบริการ — ${sheetName}`, 'FinFin');

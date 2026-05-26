@@ -20,7 +20,7 @@ function runPart2_Invoice(sheetName) {
   preFlightChecks_();
   sheetName = sheetName || getCurrentSumSheetName();
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
-  const sheet = ss.getSheetByName(sheetName);
+  const sheet = getSheetByNameSmart_(ss, sheetName);
   if (!sheet) throw new Error(`ไม่พบ Sheet "${sheetName}"`);
 
   toast(`⏳ Part 2 ใบแจ้งหนี้ — ${sheetName}`, 'FinFin');
