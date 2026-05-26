@@ -173,7 +173,7 @@ function buildCreditNotePayload(invCode, contactUuid, returnDate, creditAmt, pro
   return {
     code:        buildReference(invCode, formatDateForAPI(returnDate), 'CN'),
     issuedDate:  formatDateForAPI(returnDate),
-    contact:     { id: contactUuid, code: String(invCode) },
+    contact:     { id: contactUuid, code: String(invCode), name: customerName },
     taxStatus:   1,
     remark:      desc,
     products: [

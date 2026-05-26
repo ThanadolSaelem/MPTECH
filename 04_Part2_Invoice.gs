@@ -160,7 +160,7 @@ function buildInvoiceAllInOnePayload(
     code:         buildReference(invCode, 'ALL', 'INV'),
     issuedDate:   formatDateForAPI(contractDate),
     dueDate:      formatDateForAPI(dueDates[dueDates.length - 1] || contractDate),
-    contact:      { id: contactUuid, code: String(invCode) },
+    contact:      { id: contactUuid, code: String(invCode), name: customerName },
     istaxInvoice: 1,
     taxStatus:    1,
     remark:       `ใบแจ้งหนี้ สัญญา ${invCode}${customerName ? ` — ${customerName}` : ''}`,

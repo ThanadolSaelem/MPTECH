@@ -65,7 +65,7 @@ function ensureContactsBatch_(codeNameMap) {
         confirmed = true;
       } else {
         const desc = (c && c.resDesc) || (inner && inner.resDesc) || JSON.stringify(postRes).slice(0, 200);
-        Logger.log(`Contact NOT created [${code}]: resCode=${rc} — ${desc}`);
+        Logger.log(`Contact NOT created [${code}] name="${displayName}": resCode=${rc} — ${desc}`);
       }
     }
 
