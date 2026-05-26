@@ -18,6 +18,43 @@ const CONTACT_CACHE_KEY_    = 'PEAK_SYNCED_CONTACTS';
 const CONTACT_SYNC_SAVE_N_  = 20;               // write cache every N new contacts
 const CONTACT_SYNC_MAX_MS_  = 4.5 * 60 * 1000; // 4.5 min soft limit per call
 
+// ─── Thai name parsing ───────────────────────────────────────────────────────
+// PEAK prefixNameType mapping (educated guess — verify via debugCreateTestContacts)
+//   0 = ไม่มี, 1 = นาย, 2 = นาง, 3 = น.ส./นางสาว, 4 = ด.ช., 5 = ด.ญ.
+const THAI_PREFIXES_ = [
+  { re: /^น\.ส\.\s*/,     code: 3, label: 'น.ส.' },
+  { re: /^นางสาว\s*/,     code: 3, label: 'นางสาว' },
+  { re: /^นาง(?!สาว)\s*/, code: 2, label: 'นาง' },
+  { re: /^นาย\s*/,        code: 1, label: 'นาย' },
+  { re: /^ด\.ช\.\s*/,     code: 4, label: 'ด.ช.' },
+  { re: /^ด\.ญ\.\s*/,     code: 5, label: 'ด.ญ.' },
+  { re: /^เด็กชาย\s*/,    code: 4, label: 'เด็กชาย' },
+  { re: /^เด็กหญิง\s*/,   code: 5, label: 'เด็กหญิง' },
+];
+
+function _parseThaiName_(fullName) {
+  const s = String(fullName || '').trim();
+  for (const p of THAI_PREFIXES_) {
+    if (p.re.test(s)) {
+      const rest = s.replace(p.re, '').trim();
+      const parts = rest.split(/\s+/);
+      return {
+        prefixNameType: p.code,
+        prefixLabel:    p.label,
+        firstName:      parts[0] || '',
+        lastName:       parts.slice(1).join(' ') || '',
+      };
+    }
+  }
+  const parts = s.split(/\s+/);
+  return {
+    prefixNameType: 0,
+    prefixLabel:    '',
+    firstName:      parts[0] || s,
+    lastName:       parts.slice(1).join(' ') || '',
+  };
+}
+
 // ─── Batch Sync (called by Part 1 / Part 2 / Part 3) ─────────────────────────────
 
 function ensureContactsBatch_(codeNameMap) {
@@ -37,13 +74,23 @@ function ensureContactsBatch_(codeNameMap) {
     }
 
     const displayName = (String(name || '').trim() || `สัญญา ${code}`).slice(0, 255);
+    const parsed = _parseThaiName_(displayName);
     let confirmed = false;
 
     let postRes;
     let contactUuid = null;
     try {
       postRes = callPeakAPI('post', '/contacts/', {
-        PeakContacts: { contacts: [{ code, name: displayName, type: 5 }] },
+        PeakContacts: {
+          contacts: [{
+            code,
+            name:           displayName,
+            type:           5,
+            prefixNameType: parsed.prefixNameType,
+            firstName:      parsed.firstName,
+            lastName:       parsed.lastName,
+          }],
+        },
       });
       Logger.log(`Contact POST raw [${code}]: ${JSON.stringify(postRes).slice(0, 300)}`);
     } catch (e) {
@@ -314,6 +361,41 @@ function probeContactUpdate() {
     Utilities.sleep(500);
   }
   Logger.log('— Probe เสร็จ — เข้าไปเช็คใน PEAK UI ว่าชื่อ contact เปลี่ยนเป็น "...(probe)" หรือไม่');
+}
+
+/**
+ * สร้าง contact ทดสอบ 3 รายการ (นาย / น.ส. / นาง) แล้ว GET กลับมาดู
+ * → verify ว่า PEAK บันทึก prefixNameType + firstName + lastName ตามที่ส่งหรือไม่
+ *
+ * เช็คผลใน 2 ที่:
+ *   1. Log นี้ — ดูค่า prefixNameType / firstName / lastName ที่ PEAK เก็บ
+ *   2. PEAK UI → ผู้ติดต่อ → search "TST-" → ดู dropdown คำนำหน้า + ช่องชื่อ-นามสกุล
+ *
+ * Cleanup: ลบ contact ทดสอบใน PEAK UI หลังเทสเสร็จ (API ไม่รองรับ DELETE)
+ */
+function debugCreateTestContacts() {
+  const ts = Date.now();
+  const tests = [
+    { code: `TST-NAI-${ts}`,  name: 'นายทดสอบ หนึ่ง',   expected: 'นาย (code=1)' },
+    { code: `TST-NSA-${ts}`,  name: 'น.ส.ทดสอบ สอง',    expected: 'น.ส. (code=3)' },
+    { code: `TST-NAA-${ts}`,  name: 'นางทดสอบ สาม',     expected: 'นาง (code=2)' },
+  ];
+
+  // ล้าง cache เพื่อให้ POST จริง ไม่ใช่ skip
+  PropertiesService.getScriptProperties().deleteProperty(CONTACT_CACHE_KEY_);
+
+  const codeNameMap = {};
+  tests.forEach(t => codeNameMap[t.code] = t.name);
+  ensureContactsBatch_(codeNameMap);
+
+  Utilities.sleep(1500);
+
+  for (const t of tests) {
+    const res = callPeakAPI('get', '/contacts', null, { code: t.code });
+    Logger.log(`=== expected: ${t.expected} ===`);
+    Logger.log(JSON.stringify(res, null, 2));
+  }
+  Logger.log('--- เข้า PEAK UI → ผู้ติดต่อ → ค้นหา "TST-" → เช็ค dropdown คำนำหน้า + firstName/lastName');
 }
 
 function testGetContact() {
