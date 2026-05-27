@@ -126,6 +126,7 @@ function runPart4_CreditNote() {
       const payload = buildCreditNotePayload(
         invCode, invoiceUUID, returnDate, creditAmt, productModel, imei, customerName, branch
       );
+      Logger.log(`Part4 payload [${invCode}]: ${JSON.stringify({ PeakCreditNotes: { creditNotes: [payload] } }, null, 2)}`);
       const res = callPeakAPI('post', '/creditnotes', { PeakCreditNotes: { creditNotes: [payload] } });
       const cn = (res.PeakCreditNotes && res.PeakCreditNotes.creditNotes && res.PeakCreditNotes.creditNotes[0]) || res;
       const docNo = cn.creditNoteCode || cn.code || JSON.stringify(res).substring(0, 80);
