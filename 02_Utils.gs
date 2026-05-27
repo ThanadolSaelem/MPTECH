@@ -579,6 +579,8 @@ function cleanupStaleQueueEntries(maxAgeHours) {
  *   3. Throw ถ้า > 95% (รันต่อไม่ได้แน่ — บอกให้ user ล้างก่อน)
  */
 function preFlightChecks_() {
+  checkLicense_();
+
   const cleaned = cleanupStaleQueueEntries(24);
   if (cleaned > 0) Logger.log(`Pre-flight: cleaned ${cleaned} stale queue entries`);
 
