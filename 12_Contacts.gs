@@ -53,8 +53,8 @@ function _isJuristic_(fullName) {
 }
 
 // ─── Thai name parsing ───────────────────────────────────────────────────────
-// PEAK prefixNameType mapping — verified ✅ codes เรียงตาม dropdown (ไม่นับ "ไม่มี")
-//   0 = ไม่มี, 1 = คุณ, 2 = นาย, 3 = นาง, 4 = นางสาว/น.ส.
+// PEAK prefixNameType mapping — verified ✅ codes เรียงตาม dropdown
+//   0 = ไม่มี, 1 = คุณ, 2 = นาย, 3 = นาง, 4 = นางสาว/น.ส., 5 = อื่น ๆ (custom)
 const THAI_PREFIXES_ = [
   { re: /^น\.ส\.\s*/,     code: 4, label: 'น.ส.' },
   { re: /^นางสาว\s*/,     code: 4, label: 'นางสาว' },
@@ -63,6 +63,10 @@ const THAI_PREFIXES_ = [
   { re: /^คุณ\s*/,        code: 1, label: 'คุณ' },
 ];
 
+// prefix ที่ไม่ใช่มาตรฐาน — ส่งเป็น prefixNameType=5 (อื่น ๆ) + prefixNameOther
+// เช่น ว่าที่ ร.ต.หญิง, ด.ต., นพ., ทพ., พล.ต., ฯลฯ
+const STANDARD_PREFIX_CODES_ = new Set([0, 1, 2, 3, 4]);
+
 function _parseThaiName_(fullName) {
   const s = String(fullName || '').trim();
   for (const p of THAI_PREFIXES_) {
@@ -70,19 +74,37 @@ function _parseThaiName_(fullName) {
       const rest = s.replace(p.re, '').trim();
       const parts = rest.split(/\s+/);
       return {
-        prefixNameType: p.code,
-        prefixLabel:    p.label,
-        firstName:      parts[0] || '',
-        lastName:       parts.slice(1).join(' ') || '',
+        prefixNameType:  p.code,
+        prefixLabel:     p.label,
+        prefixNameOther: '',
+        firstName:       parts[0] || '',
+        lastName:        parts.slice(1).join(' ') || '',
       };
     }
   }
+  // ตรวจว่ามี prefix ที่ไม่ standard นำหน้าไหม
+  // pattern: คำแรก (หรือหลายคำ) ที่ไม่ใช่ชื่อจริง — ดูจากการมีจุด (.) หรือ "ว่าที่"
+  const customPrefixRe = /^((?:ว่าที่\s+)?(?:[ก-๙]+\.(?:[ก-๙]+\.)*\s*)+)/;
+  const cpMatch = s.match(customPrefixRe);
+  if (cpMatch) {
+    const customPrefix = cpMatch[1].trim();
+    const rest = s.slice(cpMatch[0].length).trim();
+    const parts = rest.split(/\s+/);
+    return {
+      prefixNameType:  5,  // อื่น ๆ
+      prefixLabel:     'อื่น ๆ',
+      prefixNameOther: customPrefix,
+      firstName:       parts[0] || rest,
+      lastName:        parts.slice(1).join(' ') || '',
+    };
+  }
   const parts = s.split(/\s+/);
   return {
-    prefixNameType: 0,
-    prefixLabel:    '',
-    firstName:      parts[0] || s,
-    lastName:       parts.slice(1).join(' ') || '',
+    prefixNameType:  0,
+    prefixLabel:     '',
+    prefixNameOther: '',
+    firstName:       parts[0] || s,
+    lastName:        parts.slice(1).join(' ') || '',
   };
 }
 
@@ -131,6 +153,8 @@ function ensureContactsBatch_(codeNameMap) {
         prefixNameType: parsed.prefixNameType,
         firstName:      parsed.firstName,
         lastName:       parsed.lastName,
+        // กรณี "อื่น ๆ" — ส่ง custom prefix (ว่าที่ ร.ต.หญิง, นพ., ทพ., ฯลฯ)
+        ...(parsed.prefixNameOther ? { prefixNameOther: parsed.prefixNameOther } : {}),
       };
     }
 
