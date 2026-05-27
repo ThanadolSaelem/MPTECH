@@ -254,6 +254,66 @@ function parseMDYDate_(s) {
 }
 
 /**
+ * Probe product variants → หาแบบที่ PEAK ยอมรับสำหรับ credit note
+ * รันครั้งเดียว ดู log ว่า variant ไหน HTTP 200 แล้วแก้ buildCreditNotePayload
+ */
+function debugCreditNoteProbe() {
+  const invCode     = '1752483851';
+  const invoiceUUID = 'b13c13bb-fa2e-40e2-a92c-9904d8e16a56';
+  const dateInt     = 20251221;
+  const dateStr     = '2025-12-21';
+  const cnCode      = `${invCode}-${dateStr}-CN-PROBE`;
+  const desc        = 'probe CN product test';
+  const amt         = 11600;
+
+  const baseHeader = {
+    transactionType:   102,
+    transactionId:     invoiceUUID,
+    reasonType:        1,
+    reasonDescription: desc,
+    goodsReturn:       '1',
+  };
+
+  const variants = [
+    // v1: ต้นฉบับ (accountCode + vatType)
+    { label: 'v1: accountCode+vatType3', products: [{ accountCode: '410101', description: desc, quantity: 1, price: amt, vatType: 3 }] },
+    // v2: ไม่มี accountCode
+    { label: 'v2: no accountCode',       products: [{ description: desc, quantity: 1, price: amt, vatType: 3 }] },
+    // v3: vatType:1 (ไม่มี VAT)
+    { label: 'v3: vatType 1',            products: [{ accountCode: '410101', description: desc, quantity: 1, price: amt, vatType: 1 }] },
+    // v4: ไม่มี accountCode + vatType:1
+    { label: 'v4: no acct, vatType 1',   products: [{ description: desc, quantity: 1, price: amt, vatType: 1 }] },
+    // v5: เพิ่ม whtType:1
+    { label: 'v5: +whtType 1',           products: [{ accountCode: '410101', description: desc, quantity: 1, price: amt, vatType: 3, whtType: 1 }] },
+    // v6: price เป็น string
+    { label: 'v6: price as string',      products: [{ accountCode: '410101', description: desc, quantity: 1, price: String(amt), vatType: 3 }] },
+    // v7: ไม่มี products ใน transactions
+    { label: 'v7: no products',          products: undefined },
+  ];
+
+  for (const v of variants) {
+    const txn = { code: cnCode, issuedDate: dateInt, remark: desc };
+    if (v.products !== undefined) txn.products = v.products;
+
+    const body = { PeakCreditNotes: { creditNotes: [Object.assign({}, baseHeader, { transactions: txn })] } };
+    const url  = CONFIG.BASE_URL + '/creditnotes';
+    try {
+      const res = UrlFetchApp.fetch(url, {
+        method: 'post', headers: buildHeaders(), contentType: 'application/json',
+        payload: JSON.stringify(body), muteHttpExceptions: true,
+      });
+      const code = res.getResponseCode();
+      const text = res.getContentText().slice(0, 300);
+      Logger.log(`[${v.label}] HTTP ${code}: ${text}`);
+    } catch (e) {
+      Logger.log(`[${v.label}] ERROR: ${e.message}`);
+    }
+    Utilities.sleep(300);
+  }
+  Logger.log('--- Probe เสร็จ --- ดูว่า variant ไหน HTTP 200 หรือ error message ต่างกัน');
+}
+
+/**
  * เพิ่ม header "เลขที่ใบลดหนี้" ใน Col Q ถ้ายังไม่มี
  */
 function ensureReturnFileHeader_(sheet) {
