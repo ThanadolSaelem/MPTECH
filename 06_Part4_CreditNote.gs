@@ -58,18 +58,28 @@ function runPart4_CreditNote() {
     const row = data[i];
 
     // ─── Guard ────────────────────────────────────────────────────────────
-    const invCode = String(row[CONFIG.RETURN_COL.D] || '').trim();
+    const invCode = String(row[CONFIG.RETURN_COL.INV] || '').trim();
     if (!invCode) continue;
 
+    // ─── Workflow filter: ออกใบลดหนี้เฉพาะ workflow ที่ระบุใน Config ──────
+    const workflow = String(row[CONFIG.RETURN_COL.WORKFLOW] || '').trim();
+    if (CONFIG.RETURN_WORKFLOW_ISSUE_CN && CONFIG.RETURN_WORKFLOW_ISSUE_CN.length > 0) {
+      if (!CONFIG.RETURN_WORKFLOW_ISSUE_CN.includes(workflow)) {
+        logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'SKIP', '', `workflow "${workflow}" ไม่อยู่ใน RETURN_WORKFLOW_ISSUE_CN — ข้าม`);
+        countSkip++;
+        continue;
+      }
+    }
+
     // ─── Idempotency ──────────────────────────────────────────────────────
-    const existingCN = String(row[CONFIG.RETURN_COL.Q] || '').trim();
+    const existingCN = String(row[CONFIG.RETURN_COL.CN_DOC] || '').trim();
     if (existingCN && existingCN !== CONFIG.PROCESSING_MARKER) {
       countSkip++;
       continue;
     }
 
-    // ─── Parse วันที่รับคืน (MM/DD/YYYY) ────────────────────────────────
-    const returnDateRaw = row[CONFIG.RETURN_COL.B];
+    // ─── Parse วันที่รับคืน (DD/MM/YYYY) ────────────────────────────────
+    const returnDateRaw = row[CONFIG.RETURN_COL.RETURN_DATE];
     const returnDate = returnDateRaw instanceof Date
       ? returnDateRaw
       : parseMDYDate_(String(returnDateRaw || '').trim());
@@ -81,8 +91,8 @@ function runPart4_CreditNote() {
     }
 
     // ─── คำนวณยอดใบลดหนี้ ────────────────────────────────────────────────
-    const contractAmt = parseAmount(row[CONFIG.RETURN_COL.K]);
-    const paidAmt = parseAmount(row[CONFIG.RETURN_COL.O]);
+    const contractAmt = parseAmount(row[CONFIG.RETURN_COL.CONTRACT_AMT]);
+    const paidAmt = parseAmount(row[CONFIG.RETURN_COL.PAID_AMT]);
     const creditAmt = contractAmt - paidAmt;
 
     if (creditAmt <= 0) {
@@ -93,13 +103,17 @@ function runPart4_CreditNote() {
     }
 
     // ─── Build metadata ───────────────────────────────────────────────────
-    const productModel = String(row[CONFIG.RETURN_COL.H] || '').trim();
-    const imei = String(row[CONFIG.RETURN_COL.G] || '').trim();
-    const customerName = String(row[CONFIG.RETURN_COL.F] || '').trim();
-    const branch = String(row[CONFIG.RETURN_COL.J] || '').trim();
+    const productModel = String(row[CONFIG.RETURN_COL.MODEL] || '').trim();
+    const imei = String(row[CONFIG.RETURN_COL.IMEI] || '').trim();
+    const prefix = String(row[CONFIG.RETURN_COL.TITLE] || '').trim();
+    const nameOnly = String(row[CONFIG.RETURN_COL.NAME] || '').trim();
+    const customerName = (prefix && !nameOnly.startsWith(prefix))
+      ? `${prefix}${nameOnly}`.trim()
+      : nameOnly;
+    const branch = String(row[CONFIG.RETURN_COL.BRANCH] || '').trim();
 
     // ─── Mark PROCESSING ──────────────────────────────────────────────────
-    writeCell(sheet, i, CONFIG.RETURN_COL.Q, CONFIG.PROCESSING_MARKER);
+    writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, CONFIG.PROCESSING_MARKER);
 
     try {
       // ensure contact exists + resolve UUID (Part 1 format: contact:{id,code})
@@ -114,14 +128,14 @@ function runPart4_CreditNote() {
       const cn = (res.PeakCreditNotes && res.PeakCreditNotes.creditNotes && res.PeakCreditNotes.creditNotes[0]) || res;
       const docNo = cn.creditNoteCode || cn.code || JSON.stringify(res).substring(0, 80);
 
-      writeCell(sheet, i, CONFIG.RETURN_COL.Q, docNo);
+      writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, docNo);
       logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'SUCCESS', docNo);
       countOk++;
 
     } catch (e) {
       const kind = classifyError_(e);
       if (kind === 'quota') {
-        writeCell(sheet, i, CONFIG.RETURN_COL.Q, '');
+        writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, '');
         logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
         quotaHit = true;
         stoppedEarly = true;
@@ -131,17 +145,17 @@ function runPart4_CreditNote() {
         const cnRef = buildReference(invCode, formatDateForAPI(returnDate), 'CN');
         const recovered = tryRecoverPeakDoc_('/creditnotes', cnRef);
         if (recovered) {
-          writeCell(sheet, i, CONFIG.RETURN_COL.Q, recovered);
+          writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, recovered);
           logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'SUCCESS', recovered, 'กู้เลขเอกสารซ้ำ');
           countOk++;
         } else {
-          writeCell(sheet, i, CONFIG.RETURN_COL.Q, CONFIG.DUPLICATE_MARKER);
+          writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, CONFIG.DUPLICATE_MARKER);
           logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'WARN', CONFIG.DUPLICATE_MARKER,
             'ใบลดหนี้มีใน PEAK แล้ว — ค้นหาเลขที่ใน PEAK แล้วอัปเดตเซลล์ด้วยตนเอง');
         }
         continue;
       }
-      writeCell(sheet, i, CONFIG.RETURN_COL.Q, '');
+      writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, '');
       logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'ERROR', '', e.message);
       countError++;
     }
@@ -191,19 +205,17 @@ function buildCreditNotePayload(invCode, contactUuid, returnDate, creditAmt, pro
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * แปลง "MM/DD/YYYY" หรือ "M/D/YYYY" → Date object
- * (ไฟล์รับคืนใช้ format นี้)
+ * แปลง "DD/MM/YYYY" (Thai format) → Date object
+ * ถ้าตัวเลขแรก > 12 → ชัดเจนว่าเป็น DD; ถ้าไม่ชัดเจนก็ถือ DD/MM/YYYY เป็น default
  */
 function parseMDYDate_(s) {
   if (!s) return null;
-  // MM/DD/YYYY
   const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (!m) {
-    // ลอง parse ทั่วไป
     const d = new Date(s);
     return isNaN(d.getTime()) ? null : d;
   }
-  const [, mm, dd, yyyy] = m;
+  const [, dd, mm, yyyy] = m;  // DD/MM/YYYY (Thai date format)
   const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd), 12, 0, 0);
   return isNaN(d.getTime()) ? null : d;
 }
