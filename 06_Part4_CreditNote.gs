@@ -85,6 +85,7 @@ function runPart4_CreditNote() {
       : parseMDYDate_(String(returnDateRaw || '').trim());
 
     if (!returnDate) {
+      Logger.log(`Part4 ERROR [${invCode}]: parse วันที่รับคืนไม่ได้: "${returnDateRaw}"`);
       logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'ERROR', '', `parse วันที่รับคืนไม่ได้: "${returnDateRaw}"`);
       countError++;
       continue;
@@ -156,6 +157,7 @@ function runPart4_CreditNote() {
         continue;
       }
       writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, '');
+      Logger.log(`Part4 ERROR [${invCode}]: ${e.message}\nStack: ${e.stack || '(no stack)'}`);
       logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'ERROR', '', e.message);
       countError++;
     }
