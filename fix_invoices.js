@@ -61,19 +61,43 @@ async function fixNote(page, invCode, expectedNote) {
   await page.waitForSelector('p.cropNumber.textBlue', { timeout: 15000 });
   await wait(500);
 
-  // 2. คลิก invoice code → นำทางไป detail
+  // 2. คลิก invoice code → นำทางไป detail (SPA)
   const codeEl = page.locator('p.cropNumber.textBlue').filter({ hasText: invCode }).first();
   if (await codeEl.count() === 0) throw new Error('ไม่พบ invoice ใน search results');
   await codeEl.click();
 
-  // 3. รอ detail page โหลด (ดูจาก edit button)
-  await page.waitForSelector(EDIT_BTN_SEL, { timeout: 15000 });
-  await wait(800);
+  // 3. รอ URL เปลี่ยน → รอ Vue mount ครบ
+  await page.waitForURL(/invoiceDetail/, { timeout: 15000 });
+  await wait(2500);
 
-  // 4. scroll + คลิกปุ่ม "แก้ไข" (เปิด quickEditTool)
-  const editBtn = page.locator(EDIT_BTN_SEL).first();
-  await editBtn.scrollIntoViewIfNeeded();
-  await editBtn.click();
+  // 4. scroll ลงหา section หมายเหตุสำหรับลูกค้า
+  await page.evaluate(() => window.scrollBy(0, 600));
+  await wait(600);
+
+  // 5. คลิก pencil icon ข้าง label "หมายเหตุสำหรับลูกค้า"
+  //    PEAK ใช้ไอคอนดินสอ (fa-pencil / fa-pencil-alt) ข้างๆ label โดยตรง
+  const pencilSels = [
+    // pencil icon ที่อยู่ใน element เดียวกับ label
+    ':text("หมายเหตุสำหรับลูกค้า") ~ i[class*="fa-pencil"]',
+    ':text("หมายเหตุสำหรับลูกค้า") + i[class*="fa-pencil"]',
+    // อยู่ใน container เดียวกัน
+    '*:has(:text("หมายเหตุสำหรับลูกค้า")) i[class*="fa-pencil"]',
+    // fallback: user-confirmed selector (อาจต้องรอนานกว่าปกติ)
+    '#recordExternalDocumentDetail > div > div > div:nth-child(2) > span',
+  ];
+
+  let editClicked = false;
+  for (const sel of pencilSels) {
+    const el = page.locator(sel).first();
+    if (await el.count() > 0) {
+      await el.scrollIntoViewIfNeeded();
+      await el.click();
+      editClicked = true;
+      console.log(`   🖱️  คลิก edit ด้วย: ${sel.slice(0, 60)}`);
+      break;
+    }
+  }
+  if (!editClicked) throw new Error('หาปุ่ม edit หมายเหตุสำหรับลูกค้าไม่เจอ');
   await wait(800);
 
   // 5. รอ textbox โผล่
