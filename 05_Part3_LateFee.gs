@@ -40,6 +40,9 @@ function runPart3_LateFee(statementSheetName) {
   const feeDocCol = ensureFeeDocHeader_(sheet, col, headerRow);
   const data      = sheet.getDataRange().getValues().slice(headerRow);
 
+  // โหลดชื่อลูกค้าจาก Sum sheet (invCode → fullName) เพื่อใช้สร้าง contact ที่ถูกต้อง
+  const nameMap = buildInvNameMap_();
+
   toast(`⏳ Part 3 ค่าปรับ — ${statementSheetName}`, 'FinFin');
 
   let countSkip = 0, countError = 0;
@@ -70,6 +73,7 @@ function runPart3_LateFee(statementSheetName) {
     eligible.push({
       rowIndex: i,
       invCode,
+      name: nameMap[invCode] || invCode,  // ชื่อลูกค้าจาก Sum sheet
       lateFee,
       feeDate,
       instType: String(row[col.INST_TYPE] || '').trim(),
@@ -130,7 +134,7 @@ function submitLateFeesBatch_(sheet, batch, sheetName, feeDocCol, headerRow, pmt
   try {
     // ensure contacts synced + resolve UUIDs ก่อน build payloads
     const codeNameMap = {};
-    batch.forEach(item => { codeNameMap[item.invCode] = item.invCode; });
+    batch.forEach(item => { codeNameMap[item.invCode] = item.name; });
     ensureContactsBatch_(codeNameMap);
 
     const payloads = [];
@@ -208,6 +212,32 @@ function buildLateFeePayload(item, contactUuid, pmtInfo) {
 }
 
 // ─── Sheet helpers (Statement-specific) ───────────────────────────────────────
+
+/**
+ * สร้าง map {invCode → fullName} จาก Sum sheet ล่าสุด
+ * ใช้ใน Part 3 เพื่อส่งชื่อลูกค้าจริงตอนสร้าง contact
+ */
+function buildInvNameMap_() {
+  try {
+    const ss    = SpreadsheetApp.openById(getSpreadsheetId());
+    const sheet = getSheetByNameSmart_(ss, getCurrentSumSheetName());
+    if (!sheet) return {};
+    const data = getSumData_(sheet);
+    const map  = {};
+    for (const row of data) {
+      const inv   = String(row[CONFIG.COL.INV]   || '').trim();
+      const title = String(row[CONFIG.COL.TITLE] || '').trim();
+      const name  = String(row[CONFIG.COL.NAME]  || '').trim();
+      if (!inv) continue;
+      const full = (title && !name.startsWith(title)) ? title + name : name;
+      if (full) map[inv] = full;
+    }
+    return map;
+  } catch (e) {
+    Logger.log(`buildInvNameMap_ error: ${e.message}`);
+    return {};
+  }
+}
 
 function ensureFeeDocHeader_(sheet, col, headerRow) {
   const FEE_DOC_LABEL = 'เลขที่ใบเสร็จค่าปรับ';
