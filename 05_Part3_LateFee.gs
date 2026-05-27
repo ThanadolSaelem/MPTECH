@@ -210,12 +210,22 @@ function buildLateFeePayload(item, contactUuid, pmtInfo) {
 // ─── Sheet helpers (Statement-specific) ───────────────────────────────────────
 
 function ensureFeeDocHeader_(sheet, col, headerRow) {
-  const targetCol = (col.PAY_DATE !== undefined ? col.PAY_DATE : col.DATE) + 1;
-  const currentHeader = sheet.getRange(headerRow, targetCol + 1).getValue();
-  if (!currentHeader) {
-    sheet.getRange(headerRow, targetCol + 1).setValue('เลขที่ใบเสร็จค่าปรับ');
+  const FEE_DOC_LABEL = 'เลขที่ใบเสร็จค่าปรับ';
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(headerRow, 1, 1, lastCol).getValues()[0];
+
+  // ค้นหา header "เลขที่ใบเสร็จค่าปรับ" ที่มีอยู่แล้ว
+  const existing = headers.indexOf(FEE_DOC_LABEL);
+  if (existing >= 0) return existing;  // 0-based
+
+  // ไม่เจอ → เพิ่มหลัง last non-empty column
+  let lastUsed = lastCol - 1;  // 0-based
+  for (let i = headers.length - 1; i >= 0; i--) {
+    if (String(headers[i] || '').trim()) { lastUsed = i; break; }
   }
-  return targetCol;
+  const newCol = lastUsed + 1;  // 0-based
+  sheet.getRange(headerRow, newCol + 1).setValue(FEE_DOC_LABEL);
+  return newCol;
 }
 
 function writeStatementCell_(sheet, rowIndex, col, headerRow, value) {
