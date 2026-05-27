@@ -205,13 +205,7 @@ function buildCreditNotePayload(invCode, invoiceUUID, returnDate, creditAmt, pro
       code:       buildReference(invCode, dateStr, 'CN'),
       issuedDate: dateInt,
       remark:     desc,
-      products: [{
-        accountCode: CONFIG.ACCOUNT_CODE_SALES,
-        description: desc,
-        quantity:    1,
-        price:       creditAmt,
-        vatType:     CONFIG.VAT_TYPE_7,
-      }],
+      // ไม่ระบุ products — PEAK ดึงจาก invoice ต้นฉบับเองโดยอัตโนมัติ (verified v7)
     },
     // ไม่ส่ง creditNotePayment — เคลียร์ยอดค้างในบัญชีเท่านั้น ไม่คืนเงินสด
   };
