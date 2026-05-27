@@ -117,13 +117,14 @@ function runPart4_CreditNote() {
     writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, CONFIG.PROCESSING_MARKER);
 
     try {
-      // ensure contact exists + resolve UUID (Part 1 format: contact:{id,code})
       ensureContactsBatch_({ [invCode]: customerName });
-      const contactUuid = getContactId_(invCode);
-      if (!contactUuid) throw new Error('ไม่พบ contactId — รัน Sync Contacts ก่อน');
+
+      // ต้องการ UUID ของใบแจ้งหนี้ที่ CN จะอ้างอิง (transactionId)
+      const invoiceUUID = getInvoiceUUID_(invCode);
+      if (!invoiceUUID) throw new Error(`ไม่พบ Invoice UUID สำหรับสัญญา ${invCode} — ตรวจว่า Part 2 ออกใบแจ้งหนี้แล้ว`);
 
       const payload = buildCreditNotePayload(
-        invCode, contactUuid, returnDate, creditAmt, productModel, imei, customerName, branch
+        invCode, invoiceUUID, returnDate, creditAmt, productModel, imei, customerName, branch
       );
       const res = callPeakAPI('post', '/creditnotes', { PeakCreditNotes: { creditNotes: [payload] } });
       const cn = (res.PeakCreditNotes && res.PeakCreditNotes.creditNotes && res.PeakCreditNotes.creditNotes[0]) || res;
@@ -181,30 +182,58 @@ function runPart4_CreditNote() {
 // ─── Payload Builder ──────────────────────────────────────────────────────────
 
 /**
- * สร้าง payload ใบลดหนี้
+ * สร้าง payload ใบลดหนี้ตาม PEAK API doc หัวข้อ 14
+ *
+ * transactionType: 102 = Invoice, 103 = Receipt
+ * reasonType:      1 = สินค้าส่งคืน (ดูตาราง reasonType ใน doc)
+ * goodsReturn:     "1" = คืนสินค้าเข้าคลัง, "0" = ไม่คืน
+ * issuedDate:      int yyyyMMdd (ไม่ใช่ ISO string)
  */
-function buildCreditNotePayload(invCode, contactUuid, returnDate, creditAmt, product, imei, customerName, branch) {
+function buildCreditNotePayload(invCode, invoiceUUID, returnDate, creditAmt, product, imei, customerName, branch) {
   const desc = `คืนเครื่อง ${product}${imei ? ` IMEI ${imei}` : ''} สาขา ${branch} — ${customerName}`;
+  const dateStr = formatDateForAPI(returnDate);              // "YYYY-MM-DD"
+  const dateInt = parseInt(dateStr.replace(/-/g, ''), 10);  // yyyyMMdd (int)
 
   return {
-    code:        buildReference(invCode, formatDateForAPI(returnDate), 'CN'),
-    issuedDate:  formatDateForAPI(returnDate),
-    contact:     { id: contactUuid, code: String(invCode), name: customerName },
-    taxStatus:   1,
-    // subType ตามมาตรา 86/10: 1=สินค้าส่งคืน, 2=คำนวณราคาผิด, 3=ใบกำกับออกผิด, 4=ลดราคา, 5=อื่น ๆ
-    // MTECH = คืนเครื่อง → 1
-    subType:     1,
-    remark:      desc,
-    products: [
-      {
+    transactionType:    102,         // 102 = ใบแจ้งหนี้ (Invoice)
+    transactionId:      invoiceUUID, // UUID ของใบแจ้งหนี้ที่ต้องการลดหนี้
+    reasonType:         1,           // 1 = สินค้าส่งคืน
+    reasonDescription:  desc,
+    goodsReturn:        '1',         // คืนสินค้าเข้าคลัง
+    transactions: {
+      code:       buildReference(invCode, dateStr, 'CN'),
+      issuedDate: dateInt,
+      remark:     desc,
+      products: [{
         accountCode: CONFIG.ACCOUNT_CODE_SALES,
         description: desc,
-        quantity: 1,
-        price: creditAmt,
-        vatType: CONFIG.VAT_TYPE_7,
-      },
-    ],
+        quantity:    1,
+        price:       creditAmt,
+        vatType:     CONFIG.VAT_TYPE_7,
+      }],
+    },
+    creditNotePayment: {
+      returnPayments: [],  // ไม่คืนเงินสด — เคลียร์ยอดค้างในบัญชีเท่านั้น
+    },
   };
+}
+
+/**
+ * ดึง UUID ของใบแจ้งหนี้จาก PEAK โดยใช้ invCode
+ * → ใช้ code ที่ Part 2 สร้างไว้: buildReference(invCode, 'ALL', 'INV')
+ */
+function getInvoiceUUID_(invCode) {
+  const invoiceCode = buildReference(invCode, 'ALL', 'INV');
+  try {
+    const res = callPeakAPI('get', '/invoices', null, { code: invoiceCode });
+    Logger.log(`getInvoiceUUID_ [${invCode}] code=${invoiceCode}: ${JSON.stringify(res).slice(0, 200)}`);
+    const invoices = res && res.PeakInvoices && res.PeakInvoices.invoices;
+    const inv = Array.isArray(invoices) ? invoices[0] : invoices;
+    return (inv && (inv.id || inv.invoiceId)) || null;
+  } catch (e) {
+    Logger.log(`getInvoiceUUID_ error [${invCode}]: ${e.message}`);
+    return null;
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
