@@ -212,9 +212,7 @@ function buildCreditNotePayload(invCode, invoiceUUID, returnDate, creditAmt, pro
         vatType:     CONFIG.VAT_TYPE_7,
       }],
     },
-    creditNotePayment: {
-      returnPayments: [],  // ไม่คืนเงินสด — เคลียร์ยอดค้างในบัญชีเท่านั้น
-    },
+    // ไม่ส่ง creditNotePayment — เคลียร์ยอดค้างในบัญชีเท่านั้น ไม่คืนเงินสด
   };
 }
 
