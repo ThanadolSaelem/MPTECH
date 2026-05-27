@@ -44,10 +44,13 @@ async function gotoList(page) {
   await page.waitForSelector(SEARCH_SEL, { timeout: 30000 });
 }
 
-// Selectors (verified by user)
-const EDIT_BTN_SEL  = '#recordExternalDocumentDetail > div > div > div:nth-child(2) > span';
-const NOTE_INPUT_SEL = '[id="หมายเหตุสำหรับลูกค้า"]';  // id ภาษาไทย → ใช้ attr selector
-const SAVE_BTN_SEL  = '#quickEditTool > div > div > div > div.edit';
+// Selectors — verified by dispatch agent
+const EDIT_BTN_SEL   = 'div:has(> #quickEditTool) span.textBlue.textLig';
+const EDIT_BTN_FB1   = 'h3:has(i.circle) + div > span.textBlue.textLig';
+const EDIT_BTN_FB2   = 'xpath=//h3[contains(text(), "หมายเหตุสำหรับลูกค้า")]/following-sibling::div//span[contains(@class,"textBlue")]';
+const NOTE_INPUT_SEL = '[id="หมายเหตุสำหรับลูกค้า"]';
+const SAVE_BTN_SEL   = '#quickEditTool > div > div > div > div.edit';
+const CANCEL_BTN_SEL = 'div:has(> #quickEditTool) i.fa-times';  // Escape ไม่ทำงานใน PEAK
 
 async function fixNote(page, invCode, expectedNote) {
   // 1. ไปหน้า list + search
@@ -66,62 +69,53 @@ async function fixNote(page, invCode, expectedNote) {
   if (await codeEl.count() === 0) throw new Error('ไม่พบ invoice ใน search results');
   await codeEl.click();
 
-  // 3. รอ URL เปลี่ยน → รอ Vue mount ครบ
+  // 3. รอ URL เปลี่ยน → รอ #quickEditTool mount (= Vue component พร้อม)
   await page.waitForURL(/invoiceDetail/, { timeout: 15000 });
-  await wait(2500);
+  await page.waitForSelector('#quickEditTool', { timeout: 15000 });
+  await wait(500);
 
   // 4. scroll ลงหา section หมายเหตุสำหรับลูกค้า
   await page.evaluate(() => window.scrollBy(0, 600));
-  await wait(600);
+  await wait(400);
 
-  // 5. คลิก pencil icon ข้าง label "หมายเหตุสำหรับลูกค้า"
-  //    PEAK ใช้ไอคอนดินสอ (fa-pencil / fa-pencil-alt) ข้างๆ label โดยตรง
-  const pencilSels = [
-    // pencil icon ที่อยู่ใน element เดียวกับ label
-    ':text("หมายเหตุสำหรับลูกค้า") ~ i[class*="fa-pencil"]',
-    ':text("หมายเหตุสำหรับลูกค้า") + i[class*="fa-pencil"]',
-    // อยู่ใน container เดียวกัน
-    '*:has(:text("หมายเหตุสำหรับลูกค้า")) i[class*="fa-pencil"]',
-    // fallback: user-confirmed selector (อาจต้องรอนานกว่าปกติ)
-    '#recordExternalDocumentDetail > div > div > div:nth-child(2) > span',
-  ];
-
+  // 5. คลิก span เปิด edit mode (verified selectors)
+  const editSels = [EDIT_BTN_SEL, EDIT_BTN_FB1, EDIT_BTN_FB2];
   let editClicked = false;
-  for (const sel of pencilSels) {
+  for (const sel of editSels) {
     const el = page.locator(sel).first();
     if (await el.count() > 0) {
       await el.scrollIntoViewIfNeeded();
       await el.click();
       editClicked = true;
-      console.log(`   🖱️  คลิก edit ด้วย: ${sel.slice(0, 60)}`);
+      console.log(`   🖱️  edit: ${sel.slice(0, 60)}`);
       break;
     }
   }
   if (!editClicked) throw new Error('หาปุ่ม edit หมายเหตุสำหรับลูกค้าไม่เจอ');
   await wait(800);
 
-  // 5. รอ textbox โผล่
-  await page.waitForSelector('#quickEditTool', { timeout: 8000 });
+  // 6. รอ textarea โผล่
   const noteInput = page.locator(NOTE_INPUT_SEL).first();
-  await noteInput.waitFor({ timeout: 5000 });
+  await noteInput.waitFor({ state: 'visible', timeout: 8000 });
 
-  // อ่าน text เดิม (textbox อาจเป็น input หรือ textarea)
+  // อ่าน text เดิม
   const current = (await noteInput.inputValue().catch(async () =>
     (await noteInput.innerText().catch(() => '')))).trim();
   console.log(`   เดิม: "${current.slice(0, 70)}"`);
 
   if (current === expectedNote) {
-    await page.keyboard.press('Escape').catch(() => {});
+    // Escape ไม่ทำงานใน PEAK → คลิก cancel
+    await page.locator(CANCEL_BTN_SEL).first().click().catch(() => {});
     return 'already_ok';
   }
 
-  // 6. เปลี่ยน text
+  // 7. เปลี่ยน text
   await noteInput.click({ clickCount: 3 });
   await wait(100);
   await noteInput.fill(expectedNote);
   await wait(300);
 
-  // 7. กด save
+  // 8. กด save
   const saveBtn = page.locator(SAVE_BTN_SEL).first();
   await saveBtn.waitFor({ timeout: 5000 });
   await saveBtn.click();
