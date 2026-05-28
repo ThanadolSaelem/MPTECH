@@ -80,8 +80,9 @@ function routeAction_(action, p) {
     case 'poll/status':       return getQueueStatusJson_();
     case 'dashboard/refresh': return refreshDashboard(p.month);
     case 'logs/tail':         return getLogsTail_(p.limit || 50);
-    case 'notifications/list': return getNotifications_();
-    case 'test/peak':         return testPeakConnection_();
+    case 'notifications/list':  return getNotifications_();
+    case 'notifications/clear': return clearNotifications_(p.kind);
+    case 'test/peak':           return testPeakConnection_();
     default:                  throw new Error(`Unknown action: ${action}`);
   }
 }
@@ -158,6 +159,14 @@ function getNotifications_() {
   const log     = getLogSheet();
   const lastRow = log.getLastRow();
   const SCAN    = 400;
+  const props   = PropertiesService.getScriptProperties();
+
+  // timestamp ที่ user กด clear ล่าสุดต่อ section (0 = ยังไม่เคย clear)
+  const clearedAt = {
+    errors:  Number(props.getProperty('NOTIF_CLEARED_errors')  || 0),
+    actions: Number(props.getProperty('NOTIF_CLEARED_actions') || 0),
+    pending: Number(props.getProperty('NOTIF_CLEARED_pending') || 0),
+  };
 
   let rows = [];
   if (lastRow > 1) {
@@ -165,6 +174,7 @@ function getNotifications_() {
     rows = log.getRange(start, 1, lastRow - start + 1, 8).getValues()
       .map(([ts, part, sheet, row, inv, status, doc, msg]) => ({
         ts:     ts instanceof Date ? ts.toISOString() : String(ts),
+        tsMs:   ts instanceof Date ? ts.getTime() : 0,
         part:   String(part   || ''),
         sheet:  String(sheet  || ''),
         row:    row,
@@ -175,9 +185,9 @@ function getNotifications_() {
       }));
   }
 
-  // ─── errors — log status ERROR (ใหม่สุดก่อน) ───────────────────────────────
+  // ─── errors — เฉพาะ ERROR ที่เกิดหลัง clearedAt ─────────────────────────────
   const errors = rows
-    .filter(r => r.status === 'ERROR')
+    .filter(r => r.status === 'ERROR' && r.tsMs > clearedAt.errors)
     .slice(-50)
     .reverse()
     .map(r => ({ ts: r.ts, part: r.part, sheet: r.sheet, row: r.row, inv: r.inv, msg: r.msg }));
@@ -185,71 +195,75 @@ function getNotifications_() {
   // ─── actions — งานที่ผู้ใช้ต้องลงมือ ────────────────────────────────────────
   const actions = [];
 
-  // (1) แถวที่ติด [IN-PEAK] — ต้องหาเลขเอกสารใน PEAK เอง (เก็บล่าสุดต่อ sheet+row)
-  const inPeak = {};
-  rows.forEach(r => {
-    if (r.doc === CONFIG.DUPLICATE_MARKER) inPeak[`${r.sheet}|${r.row}`] = r;
-  });
-  Object.keys(inPeak).sort().forEach(k => {
-    const r = inPeak[k];
-    actions.push({
-      kind:   'inpeak',
-      label:  `หาเลขเอกสารใน PEAK — ${r.sheet} แถว ${r.row}`,
-      detail: `สัญญา ${r.inv} มีเอกสารใน PEAK แล้วแต่ระบบหาเลขที่ไม่ได้ — `
-            + `เปิด PEAK ค้นด้วยเลขสัญญา แล้วกรอกเลขที่เอกสารลง Col PEAK_DOC ด้วยตนเอง`,
+  if (clearedAt.actions === 0) {
+    // (1) แถวที่ติด [IN-PEAK]
+    const inPeak = {};
+    rows.forEach(r => {
+      if (r.doc === CONFIG.DUPLICATE_MARKER) inPeak[`${r.sheet}|${r.row}`] = r;
     });
-  });
-
-  // (2) queue ที่ยังไม่ได้ poll
-  const qInv = getQueueEntries('invoice').length;
-  const qRec = getQueueEntries('receipt').length;
-  const qFee = getQueueEntries('receipt_fee').length;
-  const qTotal = qInv + qRec + qFee;
-  if (qTotal > 0) {
-    actions.push({
-      kind:   'queue',
-      label:  `Poll Queue — มี ${qTotal} รายการรอผล`,
-      detail: `Invoice ${qInv} · Receipt ${qRec} · Late Fee ${qFee} — `
-            + `กด "Poll Queue ทันที" ในหน้า Tasks เพื่อดึงเลขเอกสารกลับมาเขียนลงชีต`,
+    Object.keys(inPeak).sort().forEach(k => {
+      const r = inPeak[k];
+      actions.push({
+        kind:   'inpeak',
+        label:  `หาเลขเอกสารใน PEAK — ${r.sheet} แถว ${r.row}`,
+        detail: `สัญญา ${r.inv} มีเอกสารใน PEAK แล้วแต่ระบบหาเลขที่ไม่ได้ — `
+              + `เปิด PEAK ค้นด้วยเลขสัญญา แล้วกรอกเลขที่เอกสารลง Col PEAK_DOC ด้วยตนเอง`,
+      });
     });
-  }
 
-  // (3) contact ยังไม่ sync (SKIP เพราะไม่พบ contactId)
-  const noContact = {};
-  rows.forEach(r => {
-    if (r.status === 'SKIP' && r.msg.indexOf('contactId') >= 0) {
-      noContact[`${r.sheet}|${r.row}`] = r;
+    // (2) queue ที่ยังไม่ได้ poll
+    const qInv = getQueueEntries('invoice').length;
+    const qRec = getQueueEntries('receipt').length;
+    const qFee = getQueueEntries('receipt_fee').length;
+    const qTotal = qInv + qRec + qFee;
+    if (qTotal > 0) {
+      actions.push({
+        kind:   'queue',
+        label:  `Poll Queue — มี ${qTotal} รายการรอผล`,
+        detail: `Invoice ${qInv} · Receipt ${qRec} · Late Fee ${qFee} — `
+              + `กด "Poll Queue ทันที" ในหน้า Tasks เพื่อดึงเลขเอกสารกลับมาเขียนลงชีต`,
+      });
     }
-  });
-  const ncCount = Object.keys(noContact).length;
-  if (ncCount > 0) {
-    actions.push({
-      kind:   'contact',
-      label:  `Contact ยังไม่ครบ — ${ncCount} แถวถูกข้าม`,
-      detail: `บางสัญญายังไม่มี contact ใน PEAK — รัน Sync Contacts แล้วรัน task เดิมอีกครั้ง`,
+
+    // (3) contact ยังไม่ sync
+    const noContact = {};
+    rows.forEach(r => {
+      if (r.status === 'SKIP' && r.msg.indexOf('contactId') >= 0) {
+        noContact[`${r.sheet}|${r.row}`] = r;
+      }
     });
+    const ncCount = Object.keys(noContact).length;
+    if (ncCount > 0) {
+      actions.push({
+        kind:   'contact',
+        label:  `Contact ยังไม่ครบ — ${ncCount} แถวถูกข้าม`,
+        detail: `บางสัญญายังไม่มี contact ใน PEAK — รัน Sync Contacts แล้วรัน task เดิมอีกครั้ง`,
+      });
+    }
   }
 
   // ─── pending — ระบบทำต่อให้เองอัตโนมัติ ────────────────────────────────────
   const pending = [];
-  const props = PropertiesService.getScriptProperties().getProperties();
-  Object.keys(props).filter(k => k.startsWith('CONTINUATION_')).forEach(k => {
-    let ctx = {};
-    try { ctx = JSON.parse(props[k]); } catch (e) {}
-    pending.push({
-      kind:   'continuation',
-      label:  `ระบบจะทำต่ออัตโนมัติ — ${ctx.functionName || k.replace('CONTINUATION_', '')}`,
-      detail: `${ctx.sheetName ? 'ชีต ' + ctx.sheetName + ' · ' : ''}`
-            + `ครั้งที่ ${ctx.attempt || '?'} — ไม่ต้องทำอะไร ระบบตั้งเวลาทำงานต่อไว้แล้ว`,
+  if (clearedAt.pending === 0) {
+    const allProps = props.getProperties();
+    Object.keys(allProps).filter(k => k.startsWith('CONTINUATION_')).forEach(k => {
+      let ctx = {};
+      try { ctx = JSON.parse(allProps[k]); } catch (e) {}
+      pending.push({
+        kind:   'continuation',
+        label:  `ระบบจะทำต่ออัตโนมัติ — ${ctx.functionName || k.replace('CONTINUATION_', '')}`,
+        detail: `${ctx.sheetName ? 'ชีต ' + ctx.sheetName + ' · ' : ''}`
+              + `ครั้งที่ ${ctx.attempt || '?'} — ไม่ต้องทำอะไร ระบบตั้งเวลาทำงานต่อไว้แล้ว`,
+      });
     });
-  });
-  rows.filter(r => r.status === 'WARN' && r.msg.indexOf('quota') >= 0)
-      .slice(-10).reverse()
-      .forEach(r => pending.push({
-        kind:   'quota',
-        label:  `หยุดชั่วคราว (โควตา PEAK) — ${r.part}`,
-        detail: `${r.ts}  ·  ${r.msg}`,
-      }));
+    rows.filter(r => r.status === 'WARN' && r.msg.indexOf('quota') >= 0)
+        .slice(-10).reverse()
+        .forEach(r => pending.push({
+          kind:   'quota',
+          label:  `หยุดชั่วคราว (โควตา PEAK) — ${r.part}`,
+          detail: `${r.ts}  ·  ${r.msg}`,
+        }));
+  }
 
   // ─── lastRun — สรุปกิจกรรมล่าสุดต่อ Part ───────────────────────────────────
   const byPart = {};
@@ -267,9 +281,35 @@ function getNotifications_() {
 
   return {
     errors, actions, pending, lastRun,
-    badge:       errors.length + actions.length,
+    badge:       errors.length + actions.length + pending.length,
     generatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * บันทึกเวลาที่ user กด Clear ต่อ section
+ * getNotifications_() จะข้ามรายการที่เกิดก่อนเวลานี้
+ *   kind = 'errors'   → set NOTIF_CLEARED_errors  = now (ms)
+ *   kind = 'actions'  → set NOTIF_CLEARED_actions = now (ms) + ลบ CONTINUATION_ keys
+ *   kind = 'pending'  → set NOTIF_CLEARED_pending = now (ms) + ลบ CONTINUATION_ keys
+ */
+function clearNotifications_(kind) {
+  const props = PropertiesService.getScriptProperties();
+  const nowMs = String(Date.now());
+  const VALID = ['errors', 'actions', 'pending'];
+
+  if (!VALID.includes(kind)) throw new Error(`Unknown kind: ${kind}`);
+
+  props.setProperty(`NOTIF_CLEARED_${kind}`, nowMs);
+
+  if (kind === 'actions' || kind === 'pending') {
+    const keys = Object.keys(props.getProperties())
+      .filter(k => k.startsWith('CONTINUATION_'));
+    keys.forEach(k => props.deleteProperty(k));
+    return { cleared: kind, removedKeys: keys.length, clearedAt: nowMs };
+  }
+
+  return { cleared: kind, clearedAt: nowMs };
 }
 
 function testPeakConnection_() {
