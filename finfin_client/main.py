@@ -638,13 +638,37 @@ class MTechApp(ctk.CTk):
 
         self.notif_meta = ctk.CTkLabel(p, text="", anchor="w",
                                        text_color=TXT3, font=_F(11))
-        self.notif_meta.pack(fill="x", pady=(0, 16))
+        self.notif_meta.pack(fill="x", pady=(0, 8))
 
-        self.notif_body = ctk.CTkScrollableFrame(
-            p, fg_color="transparent",
+        body = ctk.CTkFrame(p, fg_color="transparent")
+        body.pack(fill="both", expand=True)
+        body.grid_columnconfigure(0, minsize=220)
+        body.grid_columnconfigure(1, weight=1)
+        body.grid_rowconfigure(0, weight=1)
+
+        self.notif_cat_pane = ctk.CTkScrollableFrame(
+            body, fg_color=SURFACE, width=210,
+            border_color=BORDER, border_width=1, corner_radius=10,
             scrollbar_button_color=SURFACE2,
-            scrollbar_button_hover_color=BORDER)
-        self.notif_body.pack(fill="both", expand=True)
+            scrollbar_button_hover_color=BORDER,
+        )
+        self.notif_cat_pane.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+
+        self.notif_item_pane = ctk.CTkScrollableFrame(
+            body, fg_color="transparent",
+            scrollbar_button_color=SURFACE2,
+            scrollbar_button_hover_color=BORDER,
+        )
+        self.notif_item_pane.grid(row=0, column=1, sticky="nsew")
+
+        self._notif_placeholder = ctk.CTkLabel(
+            self.notif_item_pane, text="เลือกประเภททางซ้าย",
+            font=_F(13), text_color=TXT3,
+        )
+        self._notif_placeholder.pack(pady=40)
+
+        self._notif_sections: dict = {}
+        self._notif_active_key: str = ""
         return p
 
     def _load_notifications(self, silent: bool = False) -> None:
@@ -667,94 +691,190 @@ class MTechApp(ctk.CTk):
         threading.Thread(target=_t, daemon=True).start()
 
     def _notif_auto(self) -> None:
-        """รีเฟรช badge เงียบๆ เป็นระยะ — ไม่เด้ง dialog ตอน offline"""
         self._load_notifications(silent=True)
         self.after(90_000, self._notif_auto)
 
     def _render_notifications(self, data: dict) -> None:
-        for w in self.notif_body.winfo_children():
+        for w in self.notif_cat_pane.winfo_children():
             w.destroy()
+        for w in self.notif_item_pane.winfo_children():
+            w.destroy()
+        self._notif_sections = {}
+        self._notif_active_key = ""
+
         self.notif_meta.configure(
             text=f"อัปเดต  {data.get('generatedAt', '—')[:19].replace('T', '  ')}")
 
-        self._notif_section(
-            "Error ที่ต้องแก้", DANGER, data.get("errors", []),
-            lambda e: (
-                f"[{e.get('part', '?')}]  {e.get('sheet', '')}  "
-                f"แถว {e.get('row', '')}  ·  {e.get('inv', '')}",
-                e.get("msg", "")))
+        sections = [
+            ("errors",  "Error ที่ต้องแก้",       DANGER,  data.get("errors",  []),
+             lambda e: (
+                 f"[{e.get('part','?')}]  {e.get('sheet','')}  "
+                 f"แถว {e.get('row','')}  ·  {e.get('inv','')}",
+                 e.get("msg", ""))),
+            ("actions", "งานที่ต้องลงมือ",         WARNING, data.get("actions", []),
+             lambda a: (a.get("label", ""), a.get("detail", ""))),
+            ("pending", "งานค้าง (อัตโนมัติ)",     BLUE,    data.get("pending", []),
+             lambda p: (p.get("label", ""), p.get("detail", ""))),
+            ("lastrun", "สรุปกิจกรรมล่าสุด",       TXT2,    data.get("lastRun", []), None),
+        ]
 
-        self._notif_section(
-            "งานที่ต้องลงมือ", WARNING, data.get("actions", []),
-            lambda a: (a.get("label", ""), a.get("detail", "")))
+        first_key = ""
+        for kind, title, color, items, fmt in sections:
+            count = len(items)
+            self._notif_build_cat_btn(kind, title, color, count)
+            self._notif_sections.setdefault(kind, {}).update(
+                {"title": title, "color": color, "items": items, "fmt": fmt}
+            )
+            if not first_key:
+                first_key = kind
 
-        self._notif_section(
-            "งานค้าง — ระบบทำต่อให้เองอัตโนมัติ", BLUE, data.get("pending", []),
-            lambda p: (p.get("label", ""), p.get("detail", "")))
-
-        self._notif_runsummary(data.get("lastRun", []))
+        if first_key:
+            self._notif_show_section(first_key)
         self._set_notif_badge(data.get("badge", 0))
 
-    def _notif_section(self, title, color, items, fmt) -> None:
-        panel = self._surface_panel(self.notif_body)
-        panel.pack(fill="x", pady=(0, 12))
+    def _notif_build_cat_btn(self, kind: str, title: str, color, count: int) -> None:
+        btn_frame = ctk.CTkFrame(self.notif_cat_pane, fg_color="transparent",
+                                  corner_radius=8)
+        btn_frame.pack(fill="x", padx=6, pady=3)
 
-        head = ctk.CTkFrame(panel, fg_color="transparent")
-        head.pack(fill="x", padx=18, pady=(14, 4))
+        accent = ctk.CTkFrame(btn_frame, width=4, fg_color=color, corner_radius=2)
+        accent.pack(side="left", fill="y", pady=(4, 0), padx=4)
+
+        inner = ctk.CTkFrame(btn_frame, fg_color="transparent")
+        inner.pack(side="left", fill="both", expand=True, padx=8, pady=(8, 4))
+
+        ctk.CTkLabel(inner, text=title, font=_F(12, True), text_color=TXT,
+                     anchor="w").pack(anchor="w")
+
+        badge_color = (DANGER  if color == DANGER  and count else
+                       WARNING if color == WARNING and count else TXT3)
+        count_lbl = ctk.CTkLabel(inner, text=f"{count} รายการ",
+                                  font=_F(11), text_color=badge_color, anchor="w")
+        count_lbl.pack(anchor="w")
+
+        if kind != "lastrun":
+            clear_btn = ctk.CTkButton(
+                inner, text="Clear", width=64, height=22,
+                fg_color=SURFACE, hover_color=SURFACE2,
+                text_color=TXT2, border_color=BORDER, border_width=1,
+                font=_F(11), corner_radius=4,
+                command=lambda k=kind: self._clear_notif_section(k),
+                state="normal" if count else "disabled",
+            )
+            clear_btn.pack(anchor="w", pady=(4, 4))
+            self._notif_sections.setdefault(kind, {})["clear_btn"] = clear_btn
+
+        self._notif_sections.setdefault(kind, {})["count_lbl"] = count_lbl
+        self._notif_sections.setdefault(kind, {})["cat_frame"] = btn_frame
+
+        def _on_click(_event=None, k=kind):
+            self._notif_show_section(k)
+
+        for w in (btn_frame, accent, inner):
+            w.bind("<Button-1>", _on_click)
+            w.configure(cursor="hand2")
+
+    def _notif_highlight_cat(self, active_frame) -> None:
+        for sec in self._notif_sections.values():
+            f = sec.get("cat_frame")
+            if f:
+                f.configure(fg_color="transparent")
+        active_frame.configure(fg_color=SURFACE2)
+
+    def _notif_show_section(self, kind: str) -> None:
+        self._notif_active_key = kind
+        sec = self._notif_sections.get(kind, {})
+        if sec.get("cat_frame"):
+            self._notif_highlight_cat(sec["cat_frame"])
+
+        for w in self.notif_item_pane.winfo_children():
+            w.destroy()
+
+        title = sec.get("title", "")
+        color = sec.get("color", TXT2)
+        items = sec.get("items", [])
+        fmt   = sec.get("fmt")
+
+        head = ctk.CTkFrame(self.notif_item_pane, fg_color="transparent")
+        head.pack(fill="x", pady=(0, 12))
         ctk.CTkLabel(head, text=title, font=_F(14, True),
                      text_color=color).pack(side="left")
-        ctk.CTkLabel(head, text=f"   {len(items)}", font=_F(13, True),
+        ctk.CTkLabel(head, text=f"  {len(items)}", font=_F(13, True),
                      text_color=TXT3).pack(side="left")
 
+        if kind == "lastrun":
+            self._notif_render_lastrun(items)
+            return
+
         if not items:
-            ctk.CTkLabel(panel, text="ไม่มีรายการ", font=_F(12),
-                         text_color=SUCCESS).pack(anchor="w", padx=18,
-                                                  pady=(0, 14))
+            ctk.CTkLabel(self.notif_item_pane, text="ไม่มีรายการ  ✓",
+                         font=_F(13), text_color=SUCCESS).pack(anchor="w", pady=(0, 14))
             return
 
         for it in items:
             line1, line2 = fmt(it)
-            row = ctk.CTkFrame(panel, fg_color=SURFACE2, corner_radius=6)
-            row.pack(fill="x", padx=14, pady=3)
+            row = ctk.CTkFrame(self.notif_item_pane, fg_color=SURFACE,
+                               border_color=BORDER, border_width=1, corner_radius=8)
+            row.pack(fill="x", pady=4)
             ctk.CTkLabel(row, text=line1, font=_F(12, True), text_color=TXT,
-                         anchor="w", justify="left", wraplength=720,
+                         anchor="w", justify="left", wraplength=680,
                          ).pack(anchor="w", padx=12, pady=(8, 0))
             if line2:
                 ctk.CTkLabel(row, text=line2, font=_F(11), text_color=TXT2,
-                             anchor="w", justify="left", wraplength=720,
+                             anchor="w", justify="left", wraplength=680,
                              ).pack(anchor="w", padx=12, pady=(2, 8))
             else:
-                ctk.CTkLabel(row, text="", height=4).pack()
-        ctk.CTkLabel(panel, text="", height=6).pack()
+                ctk.CTkLabel(row, text="", height=6).pack()
 
-    def _notif_runsummary(self, rows) -> None:
-        panel = self._surface_panel(self.notif_body)
-        panel.pack(fill="x", pady=(0, 12))
-        ctk.CTkLabel(panel, text="สรุปกิจกรรมล่าสุด", font=_F(14, True),
-                     text_color=TXT2).pack(anchor="w", padx=18, pady=(14, 6))
+    def _clear_notif_section(self, kind: str) -> None:
+        sec       = self._notif_sections.get(kind, {})
+        count_lbl = sec.get("count_lbl")
+        clear_btn = sec.get("clear_btn")
+        if count_lbl:
+            count_lbl.configure(text="0 รายการ", text_color=TXT3)
+        if clear_btn:
+            clear_btn.configure(state="disabled")
+        sec["items"] = []
+        if self._notif_active_key == kind:
+            self._notif_show_section(kind)
 
+        def _t():
+            try:
+                self.client.call("notifications/clear", {"kind": kind}, timeout=30)
+            except Exception:
+                pass
+        threading.Thread(target=_t, daemon=True).start()
+
+    def _notif_render_lastrun(self, rows) -> None:
         if not rows:
-            ctk.CTkLabel(panel, text="ไม่มีข้อมูล", font=_F(12),
-                         text_color=TXT3).pack(anchor="w", padx=18,
-                                               pady=(0, 14))
+            ctk.CTkLabel(self.notif_item_pane, text="ไม่มีข้อมูล",
+                         font=_F(13), text_color=TXT3).pack(anchor="w", pady=(0, 14))
             return
 
         for r in rows:
-            line = ctk.CTkFrame(panel, fg_color="transparent")
-            line.pack(fill="x", padx=18, pady=2)
-            ctk.CTkLabel(line, text=r.get("part", "?"), font=_F(12, True),
-                         text_color=TXT, width=70, anchor="w").pack(side="left")
-            ctk.CTkLabel(line,
-                         text=(f"สำเร็จ {r.get('success', 0)}    "
-                               f"Queue {r.get('queued', 0)}    "
-                               f"ข้าม {r.get('skip', 0)}    "
-                               f"Error {r.get('error', 0)}"),
-                         font=_F(12), text_color=TXT2, anchor="w",
-                         ).pack(side="left")
-            ctk.CTkLabel(line, text=r.get("lastTs", "")[:19].replace("T", " "),
-                         font=_F(11), text_color=TXT3, anchor="e",
-                         ).pack(side="right")
-        ctk.CTkLabel(panel, text="", height=6).pack()
+            card = ctk.CTkFrame(self.notif_item_pane, fg_color=SURFACE,
+                                border_color=BORDER, border_width=1, corner_radius=8)
+            card.pack(fill="x", pady=4)
+
+            top = ctk.CTkFrame(card, fg_color="transparent")
+            top.pack(fill="x", padx=14, pady=(8, 4))
+            ctk.CTkLabel(top, text=r.get("part", "?"), font=_F(13, True),
+                         text_color=TXT, anchor="w").pack(side="left")
+            ctk.CTkLabel(top, text=r.get("lastTs", "")[:19].replace("T", " "),
+                         font=_F(11), text_color=TXT3, anchor="e").pack(side="right")
+
+            stats = ctk.CTkFrame(card, fg_color="transparent")
+            stats.pack(fill="x", padx=14, pady=(0, 8))
+            for label, val, chip_color in [
+                ("สำเร็จ", r.get("success", 0), SUCCESS),
+                ("Queue",  r.get("queued",  0), WARNING),
+                ("ข้าม",   r.get("skip",    0), TXT3),
+                ("Error",  r.get("error",   0), DANGER),
+            ]:
+                chip = ctk.CTkFrame(stats, fg_color=SURFACE2, corner_radius=4)
+                chip.pack(side="left", padx=(0, 4))
+                ctk.CTkLabel(chip, text=f"{label} {val}", font=_F(11),
+                             text_color=chip_color).pack(padx=8, pady=3)
 
     def _set_notif_badge(self, n: int) -> None:
         sb = self._sb_canvas
