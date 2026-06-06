@@ -80,6 +80,8 @@ function runPart2_Invoice(sheetName) {
     const title = String(row[CONFIG.COL.TITLE] || '').trim();
     const rawName = String(row[CONFIG.COL.NAME] || '').trim();
     const customerName = rawName.startsWith(title) ? rawName : (title + rawName).trim();
+    const idCard  = String(row[CONFIG.COL.ID_CARD]  || '').trim();
+    const address = String(row[CONFIG.COL.ADDRESS]   || '').trim();
 
     // ── AR Opening Balance — ยกยอดสัญญาที่ชำระมาแล้วบางส่วน ─────────────────────
     // ถ้า AR_BEGIN มีค่า และ < contractAmt → ออก Invoice เฉพาะยอดค้างที่เหลือ
@@ -112,7 +114,7 @@ function runPart2_Invoice(sheetName) {
     writeSumCell_(sheet, i, invDocCol, CONFIG.PROCESSING_MARKER);
 
     try {
-      ensureContactsBatch_({ [invCode]: customerName });
+      ensureContactsBatch_({ [invCode]: { name: customerName, idCard, address } });
       const contactUuid = getContactId_(invCode);
       if (!contactUuid) {
         writeSumCell_(sheet, i, invDocCol, '');

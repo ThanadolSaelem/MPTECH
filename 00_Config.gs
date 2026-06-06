@@ -65,6 +65,11 @@ const CONFIG = {
     CLOSEOUT_DISC:    14,  // ส่วนลดปิดยอด
     AR_END:           15,  // ลูกหนี้คงเหลือปลายงวด
     DUE_DATE:         16,  // วันที่ครบกำหนดค่างวด (MM.YY)
+    // output columns (auto-added by code — ห้ามแทรก col ระหว่างนี้)
+    // 17 = เลขที่ PEAK (ค่าบริการ)   DUE_DATE+1
+    // 18 = เลขที่ใบแจ้งหนี้ PEAK     DUE_DATE+2
+    ID_CARD:          19,  // เลขบัตรประชาชน 13 หลัก (นกเพิ่ม)
+    ADDRESS:          20,  // ที่อยู่ (นกเพิ่ม)
   },
 
   // ─── Receipt Sheet Columns (รายการรับชำระ — source of truth) ─────────────────
