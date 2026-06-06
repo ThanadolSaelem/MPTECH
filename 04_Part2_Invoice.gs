@@ -77,11 +77,37 @@ function runPart2_Invoice(sheetName) {
       continue;
     }
 
-    const downPayment = Math.max(0, contractAmt - (installmentAmt * numInstallments));
-    const dueDates    = calculateDueDates(contractDate, paymentDay, numInstallments);
     const title = String(row[CONFIG.COL.TITLE] || '').trim();
     const rawName = String(row[CONFIG.COL.NAME] || '').trim();
     const customerName = rawName.startsWith(title) ? rawName : (title + rawName).trim();
+
+    // ── AR Opening Balance — ยกยอดสัญญาที่ชำระมาแล้วบางส่วน ─────────────────────
+    // ถ้า AR_BEGIN มีค่า และ < contractAmt → ออก Invoice เฉพาะยอดค้างที่เหลือ
+    // ถ้า AR_BEGIN = 0 หรือว่าง → สัญญาใหม่ ออกปกติเต็มสัญญา
+    const arBegin    = parseAmount(row[CONFIG.COL.AR_BEGIN]);
+    const isCarryOver = arBegin > 0 && arBegin < contractAmt * 0.99;
+
+    let effDown, effInstN, effAmt, effDates, effIssueDate;
+    if (isCarryOver) {
+      effDown      = 0;  // down payment ชำระไปแล้วในอดีต
+      effInstN     = installmentAmt > 0 ? Math.max(1, Math.round(arBegin / installmentAmt)) : 1;
+      effAmt       = Math.min(arBegin, contractAmt);
+      effIssueDate = new Date();  // วันที่ออก Invoice = วันนี้ (ไม่ใช้ contractDate ในอดีต)
+      const firstDue = toDate(row[CONFIG.COL.DUE_DATE]) || nextDueDate_(parseInt(row[CONFIG.COL.PAY_DAY]) || 1);
+      effDates     = buildRemainingDueDates_(firstDue, effInstN);
+      logEntry('Part2', sheetName, i, invCode, 'INFO', '',
+        `ยกยอด AR_BEGIN=${arBegin} → Invoice ${effInstN} งวด × ${installmentAmt}`);
+    } else {
+      effDown      = Math.max(0, contractAmt - (installmentAmt * numInstallments));
+      effInstN     = numInstallments;
+      effAmt       = contractAmt;
+      effIssueDate = contractDate;
+      effDates     = calculateDueDates(contractDate, paymentDay, numInstallments);
+    }
+
+    const docRef = isCarryOver
+      ? buildReference(invCode, 'CONT', 'INV')  // CONT = continuation (ยกยอด)
+      : buildReference(invCode, 'ALL',  'INV');  // ALL  = full contract (ใหม่)
 
     writeSumCell_(sheet, i, invDocCol, CONFIG.PROCESSING_MARKER);
 
@@ -97,20 +123,21 @@ function runPart2_Invoice(sheetName) {
       }
 
       const payload = buildInvoiceAllInOnePayload(
-        invCode, contactUuid, contractDate, downPayment, installmentAmt,
-        numInstallments, contractAmt, dueDates, customerName
+        invCode, contactUuid, effIssueDate, effDown, installmentAmt,
+        effInstN, effAmt, effDates, customerName, isCarryOver, docRef
       );
       const res = callPeakAPI('post', '/invoices/allinone', { PeakInvoices: { invoices: [payload] } });
       const inv = (res.PeakInvoices && res.PeakInvoices.invoices && res.PeakInvoices.invoices[0]) || res;
       const docNo = inv.invoiceCode || inv.code || JSON.stringify(res).substring(0, 80);
       writeSumCell_(sheet, i, invDocCol, docNo);
-      logEntry('Part2', sheetName, i, invCode, 'SUCCESS', docNo);
+      logEntry('Part2', sheetName, i, invCode, 'SUCCESS', docNo,
+        isCarryOver ? `ยกยอด ${effInstN} งวด` : '');
       countOk++;
     } catch (e) {
       const kind = classifyError_(e);
       if (kind === 'duplicate') {
         // ใบแจ้งหนี้นี้มีใน PEAK แล้วจากรอบก่อน — กู้เลขเอกสารคืน
-        const recovered = tryRecoverPeakDoc_('/invoices', buildReference(invCode, 'ALL', 'INV'));
+        const recovered = tryRecoverPeakDoc_('/invoices', docRef);
         if (recovered) {
           writeSumCell_(sheet, i, invDocCol, recovered);
           logEntry('Part2', sheetName, i, invCode, 'SUCCESS', recovered, 'กู้เลขเอกสารซ้ำ');
@@ -152,10 +179,11 @@ function runPart2_Invoice(sheetName) {
 // ─── Payload Builder ──────────────────────────────────────────────────────────
 
 function buildInvoiceAllInOnePayload(
-  invCode, contactUuid, contractDate, downPayment, installmentAmt,
-  numInstallments, contractAmt, dueDates, customerName
+  invCode, contactUuid, issueDate, downPayment, installmentAmt,
+  numInstallments, contractAmt, dueDates, customerName, isCarryOver, docRef
 ) {
   const products = [];
+  const fallbackDate = issueDate || new Date();
 
   if (downPayment > 0) {
     products.push({
@@ -164,15 +192,18 @@ function buildInvoiceAllInOnePayload(
       quantity:    1,
       price:       downPayment,
       vatType:     CONFIG.VAT_TYPE_7,
-      dueDate:     formatDateForAPI(contractDate),
+      dueDate:     formatDateForAPI(fallbackDate),
     });
   }
 
   if (numInstallments > 0) {
-    const lastDueDate = dueDates[dueDates.length - 1] || contractDate;
+    const lastDueDate = dueDates[dueDates.length - 1] || fallbackDate;
+    const desc = isCarryOver
+      ? `ค่างวดคงเหลือ ${numInstallments} งวด งวดละ ${installmentAmt.toLocaleString()} บาท สัญญา ${invCode}`
+      : `ค่างวด ${numInstallments} งวด งวดละ ${installmentAmt.toLocaleString()} บาท สัญญา ${invCode}`;
     products.push({
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
-      description: `ค่างวด ${numInstallments} งวด งวดละ ${installmentAmt.toLocaleString()} บาท สัญญา ${invCode}`,
+      description: desc,
       quantity:    numInstallments,
       price:       installmentAmt,
       vatType:     CONFIG.VAT_TYPE_7,
@@ -180,14 +211,18 @@ function buildInvoiceAllInOnePayload(
     });
   }
 
+  const remark = isCarryOver
+    ? `ใบแจ้งหนี้ยอดค้าง (ยกยอด) สัญญา ${invCode}${customerName ? ` — ${customerName}` : ''}`
+    : `ใบแจ้งหนี้ สัญญา ${invCode}${customerName ? ` — ${customerName}` : ''}`;
+
   return {
-    code:         buildReference(invCode, 'ALL', 'INV'),
-    issuedDate:   formatDateForAPI(contractDate),
-    dueDate:      formatDateForAPI(dueDates[dueDates.length - 1] || contractDate),
+    code:         docRef || buildReference(invCode, 'ALL', 'INV'),
+    issuedDate:   formatDateForAPI(fallbackDate),
+    dueDate:      formatDateForAPI(dueDates[dueDates.length - 1] || fallbackDate),
     contact:      { id: contactUuid, code: String(invCode), name: customerName },
     istaxInvoice: 1,
     taxStatus:    1,
-    remark:       `ใบแจ้งหนี้ สัญญา ${invCode}${customerName ? ` — ${customerName}` : ''}`,
+    remark,
     products,
   };
 }
@@ -224,6 +259,37 @@ function calculateDueDates(startDate, paymentDay, numMonths) {
     while (m > 11) { m -= 12; y += 1; }
     const lastDay = new Date(y, m + 1, 0).getDate();
     dates.push(new Date(y, m, Math.min(paymentDay, lastDay), 12, 0, 0));
+  }
+  return dates;
+}
+
+/**
+ * หา due date ถัดไปจาก paymentDay ของเดือน
+ * ถ้าวัน paymentDay ของเดือนนี้ผ่านไปแล้ว → ใช้เดือนหน้า
+ */
+function nextDueDate_(paymentDay) {
+  const today = new Date();
+  const clampDay = (y, m) => Math.min(paymentDay, new Date(y, m + 1, 0).getDate());
+  const thisDay = clampDay(today.getFullYear(), today.getMonth());
+  const thisMonth = new Date(today.getFullYear(), today.getMonth(), thisDay, 12, 0, 0);
+  if (thisMonth >= today) return thisMonth;
+  let m = today.getMonth() + 1, y = today.getFullYear();
+  if (m > 11) { m = 0; y++; }
+  return new Date(y, m, clampDay(y, m), 12, 0, 0);
+}
+
+/**
+ * สร้าง array of due dates จาก firstDue เป็นต้นไป count เดือน
+ */
+function buildRemainingDueDates_(firstDue, count) {
+  if (!firstDue || count <= 0) return [];
+  const dates = [firstDue];
+  for (let n = 1; n < count; n++) {
+    const prev = dates[dates.length - 1];
+    let m = prev.getMonth() + 1, y = prev.getFullYear();
+    if (m > 11) { m = 0; y++; }
+    const d = Math.min(prev.getDate(), new Date(y, m + 1, 0).getDate());
+    dates.push(new Date(y, m, d, 12, 0, 0));
   }
   return dates;
 }
