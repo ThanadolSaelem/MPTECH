@@ -28,6 +28,13 @@ function runPart2_Invoice(sheetName) {
   const invDocCol = ensureInvoiceDocHeader_(sheet);
   const data = getSumData_(sheet);
 
+  // ── ตรวจสัญญาที่ Part 1 ออก Tax Invoice ไปแล้ว ───────────────────────────────
+  const part1Covered = buildPart1CoveredSet_(ss, sheetName);
+  if (part1Covered.size > 0) {
+    Logger.log(`⚠️ Part 2: พบ ${part1Covered.size} สัญญาที่ Part 1 ออกเอกสารไปแล้ว — จะข้ามอัตโนมัติ`);
+    toast(`⚠️ Part 1 ออกไปแล้ว ${part1Covered.size} สัญญา — Part 2 จะข้ามสัญญาเหล่านั้น`, 'FinFin', 5);
+  }
+
   let countOk = 0, countSkip = 0, countError = 0;
 
   const guard = makeTimeGuard_(5);
@@ -42,6 +49,16 @@ function runPart2_Invoice(sheetName) {
 
     const contractDate = toDate(row[CONFIG.COL.CONTRACT_DATE]);
     if (!contractDate) continue;
+
+    // ── Skip: Part 1 ออก Tax Invoice สำหรับสัญญานี้แล้ว ─────────────────────────
+    if (part1Covered.has(invCode)) {
+      const curDoc = String(row[invDocCol] || '').trim();
+      if (!curDoc) writeSumCell_(sheet, i, invDocCol, '[PART1-DONE]');
+      logEntry('Part2', sheetName, i, invCode, 'SKIP', '[PART1-DONE]',
+        'ข้ามเพราะ Part 1 ออก Tax Invoice ไปแล้ว — ลบ "[PART1-DONE]" เพื่อบังคับออกใบแจ้งหนี้');
+      countSkip++;
+      continue;
+    }
 
     const existingDoc = String(row[invDocCol] || '').trim();
     if (existingDoc && existingDoc !== CONFIG.PROCESSING_MARKER) {
@@ -205,4 +222,36 @@ function calculateDueDates(startDate, paymentDay, numMonths) {
     dates.push(new Date(y, m, Math.min(paymentDay, lastDay), 12, 0, 0));
   }
   return dates;
+}
+
+/**
+ * คืน Set ของ invCode ที่ Part 1 ออก Tax Invoice ไปแล้ว
+ * (มีค่าใน RECEIPT_COL.PEAK_DOC ที่ไม่ว่างและไม่ใช่ PROCESSING_MARKER)
+ *
+ * ป้องกัน Part 2 ออกใบแจ้งหนี้ซ้ำกับ Invoice ที่ Part 1 สร้างไปแล้ว
+ * ซึ่งจะทำให้ลูกหนี้ใน PEAK ค้างโดยไม่มีการชำระ
+ */
+function buildPart1CoveredSet_(ss, sumSheetName) {
+  const suffix = sumSheetName.replace(new RegExp('^' + CONFIG.SUM_SHEET_PREFIX), '');
+  const receiptName = CONFIG.RECEIPT_SHEET_PREFIX + suffix;
+  const covered = new Set();
+  try {
+    const rSheet = ss.getSheetByName(receiptName);
+    if (!rSheet) return covered;
+    const startRow = CONFIG.RECEIPT_HEADER_ROW + 1;
+    const lastRow = rSheet.getLastRow();
+    if (lastRow < startRow) return covered;
+    const numCols = CONFIG.RECEIPT_COL.PEAK_DOC + 1;
+    const data = rSheet.getRange(startRow, 1, lastRow - startRow + 1, numCols).getValues();
+    for (const row of data) {
+      const invCode = String(row[CONFIG.RECEIPT_COL.INV]  || '').trim();
+      const peakDoc = String(row[CONFIG.RECEIPT_COL.PEAK_DOC] || '').trim();
+      if (invCode && peakDoc && peakDoc !== CONFIG.PROCESSING_MARKER) {
+        covered.add(invCode);
+      }
+    }
+  } catch (e) {
+    Logger.log(`buildPart1CoveredSet_: ไม่สามารถโหลด ${receiptName} — ${e.message}`);
+  }
+  return covered;
 }
