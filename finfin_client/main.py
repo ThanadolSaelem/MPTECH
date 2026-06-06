@@ -96,9 +96,9 @@ class Tooltip:
 
 
 TASKS = [
+    ("ออกใบแจ้งหนี้",           "part2/run",        "sheetName"),
     ("ออกใบกำกับภาษี",          "part1/run",        "sheetName"),
     ("ค่าบริการเพิ่มเติม",       "part1/servicefee", "sheetName"),
-    ("ออกใบแจ้งหนี้",           "part2/run",        "sheetName"),
     ("ออกใบเสร็จค่าปรับ",       "part3/run",        "sheetName"),
     ("ออกใบลดหนี้ (คืนเครื่อง)", "part4/run",        None),
     ("Match Statement",         "part5/run",        "sheetName"),
@@ -558,10 +558,13 @@ class MTechApp(ctk.CTk):
         ctk.CTkLabel(row, text="  ·  จะส่งไปเก็บที่ GAS ScriptProperties",
                      font=_F(12), text_color=TXT3).pack(side="left")
 
-        self.e_connect = self._plain_field(form, "CONNECT_ID")
-        self.e_token   = self._plain_field(form, "USER_TOKEN", show="•")
+        self.e_connect = self._plain_field(form, "CONNECT_ID",
+                                           initial=self.cfg.get("connect_id", ""))
+        self.e_token   = self._plain_field(form, "USER_TOKEN", show="•",
+                                           initial=self.cfg.get("user_token", ""))
         self.e_ss      = self._plain_field(form, "SPREADSHEET_ID",
-                                           extract_sheet_id=True)
+                                           extract_sheet_id=True,
+                                           initial=self.cfg.get("spreadsheet_id", ""))
         self.e_ret     = self._plain_field(form,
             "RETURN_SPREADSHEET_ID  (ว่างได้ ถ้าอยู่ใน Spreadsheet เดียวกัน)",
             extract_sheet_id=True)
@@ -776,12 +779,14 @@ class MTechApp(ctk.CTk):
         e.pack(fill="x")
         setattr(self, f"_e_{cfg_key}", e)
 
-    def _plain_field(self, parent, label, show=None, extract_sheet_id=False):
+    def _plain_field(self, parent, label, show=None, extract_sheet_id=False, initial=""):
         ctk.CTkLabel(parent, text=label, font=_F(12), text_color=TXT2,
                      ).pack(anchor="w", pady=(12, 4))
         e = ctk.CTkEntry(parent, show=show, width=640,
                          fg_color=SURFACE, border_color=BORDER, text_color=TXT,
                          placeholder_text_color=TXT3, font=_F(13))
+        if initial:
+            e.insert(0, initial)
         e.pack(fill="x")
         if extract_sheet_id:
             def _on_focus_out(_event, entry=e):
