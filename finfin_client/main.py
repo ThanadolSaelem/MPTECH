@@ -96,22 +96,22 @@ class Tooltip:
 
 
 TASKS = [
-    ("Part 1  —  ออกใบกำกับภาษี",          "part1/run",        "sheetName"),
-    ("Part 1  —  ค่าบริการเพิ่มเติม",       "part1/servicefee", "sheetName"),
-    ("Part 2  —  ออกใบแจ้งหนี้ bulk",       "part2/run",        "sheetName"),
-    ("Part 3  —  ออกใบเสร็จค่าปรับ",        "part3/run",        "sheetName"),
-    ("Part 4  —  ออกใบลดหนี้ (คืนเครื่อง)", "part4/run",        None),
-    ("Part 5  —  Match Statement",          "part5/run",        "sheetName"),
-    ("Poll Queue ทันที",                    "poll/now",         None),
-    ("ทดสอบ PEAK Connection",               "test/peak",        None),
+    ("ออกใบกำกับภาษี",          "part1/run",        "sheetName"),
+    ("ค่าบริการเพิ่มเติม",       "part1/servicefee", "sheetName"),
+    ("ออกใบแจ้งหนี้",           "part2/run",        "sheetName"),
+    ("ออกใบเสร็จค่าปรับ",       "part3/run",        "sheetName"),
+    ("ออกใบลดหนี้ (คืนเครื่อง)", "part4/run",        None),
+    ("Match Statement",         "part5/run",        "sheetName"),
+    ("Poll Queue ทันที",         "poll/now",         None),
+    ("ทดสอบ PEAK Connection",    "test/peak",        None),
 ]
 
 # accent color per card (used as top border stripe)
 PART_CARDS = [
-    ("part1_tax", "Part 1  ·  ใบกำกับภาษี",        BLUE,    "receipt"),
-    ("part3_fee", "Part 3  ·  ค่าปรับ",             WARNING, "statement"),
-    ("part1_svc", "Part 1  ·  ค่าบริการเพิ่มเติม",  TEAL,    "sum"),
-    ("part2_inv", "Part 2  ·  ใบแจ้งหนี้สัญญาใหม่", INDIGO,  "sum"),
+    ("part1_tax", "ใบกำกับภาษี",        BLUE,    "receipt"),
+    ("part3_fee", "ค่าปรับ",             WARNING, "statement"),
+    ("part1_svc", "ค่าบริการเพิ่มเติม",  TEAL,    "sum"),
+    ("part2_inv", "ใบแจ้งหนี้",          INDIGO,  "sum"),
 ]
 
 

@@ -110,6 +110,9 @@ function _parseThaiName_(fullName) {
 
 // ─── Batch Sync (called by Part 1 / Part 2 / Part 3) ─────────────────────────────
 
+// codeNameMap รองรับ 2 รูปแบบ (backward-compatible):
+//   { [invCode]: "ชื่อลูกค้า" }
+//   { [invCode]: { name, idCard?, address? } }
 function ensureContactsBatch_(codeNameMap) {
   const props  = PropertiesService.getScriptProperties();
   const raw    = props.getProperty(CONTACT_CACHE_KEY_);
@@ -117,7 +120,7 @@ function ensureContactsBatch_(codeNameMap) {
   const start  = Date.now();
   let newCount = 0;
 
-  for (const [invCode, name] of Object.entries(codeNameMap)) {
+  for (const [invCode, nameOrObj] of Object.entries(codeNameMap)) {
     const code = String(invCode).trim();
     if (!code || cache[code]) continue;
 
@@ -126,16 +129,28 @@ function ensureContactsBatch_(codeNameMap) {
       break;
     }
 
-    const displayName = (String(name || '').trim() || `สัญญา ${code}`).slice(0, 255);
+    const isObj      = nameOrObj && typeof nameOrObj === 'object';
+    const rawName    = isObj ? (nameOrObj.name || '') : (nameOrObj || '');
+    const idCard     = isObj ? String(nameOrObj.idCard  || '').trim() : '';
+    const address    = isObj ? String(nameOrObj.address || '').trim() : '';
+
+    const displayName = (String(rawName).trim() || `สัญญา ${code}`).slice(0, 255);
 
     // ─── Build contact payload ตามประเภท: นิติบุคคล (type 3) หรือ บุคคลธรรมดา (type 5) ──
     let contactPayload;
+    // ฟิลด์ข้อมูลประชาชน/ที่อยู่ (ใส่ถ้ามีค่า — ใช้ได้ทั้ง juristic และ individual)
+    const extraFields = {
+      ...(idCard  ? { idCardNumber: idCard  } : {}),
+      ...(address ? { address:      address } : {}),
+    };
+
     if (_isJuristic_(displayName)) {
       // นิติบุคคล — ส่งชื่อตรงๆ ไม่ parse prefix/firstName/lastName
       contactPayload = {
         code,
         name: displayName,
         type: CONTACT_TYPE_JURISTIC_,
+        ...extraFields,
       };
     } else {
       // บุคคลธรรมดา — parse คำนำหน้า + ชื่อจริง + นามสกุล
@@ -155,6 +170,7 @@ function ensureContactsBatch_(codeNameMap) {
         lastName:       parsed.lastName,
         // กรณี "อื่น ๆ" — ส่ง custom prefix (ว่าที่ ร.ต.หญิง, นพ., ทพ., ฯลฯ)
         ...(parsed.prefixNameOther ? { prefixNameOther: parsed.prefixNameOther } : {}),
+        ...extraFields,
       };
     }
 
