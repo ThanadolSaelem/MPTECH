@@ -79,11 +79,13 @@ function routeAction_(action, p) {
     case 'poll/now':          return pollAllQueues();
     case 'poll/status':       return getQueueStatusJson_();
     case 'dashboard/refresh': return refreshDashboard(p.month);
-    case 'logs/tail':         return getLogsTail_(p.limit || 50);
-    case 'notifications/list':  return getNotifications_();
-    case 'notifications/clear': return clearNotifications_(p.kind);
-    case 'test/peak':           return testPeakConnection_();
-    default:                  throw new Error(`Unknown action: ${action}`);
+    case 'logs/tail':               return getLogsTail_(p.limit || 50);
+    case 'notifications/list':      return getNotifications_();
+    case 'notifications/clear':     return clearNotifications_(p.kind);
+    case 'test/peak':               return testPeakConnection_();
+    case 'contacts/sync':           return runSyncContacts(resolveSheet_(p.sheetName, CONFIG.RECEIPT_SHEET_PREFIX));
+    case 'contacts/update-details': return runUpdateContactDetails(resolveSheet_(p.sheetName, CONFIG.SUM_SHEET_PREFIX));
+    default:                        throw new Error(`Unknown action: ${action}`);
   }
 }
 
@@ -289,9 +291,6 @@ function getNotifications_() {
 /**
  * บันทึกเวลาที่ user กด Clear ต่อ section
  * getNotifications_() จะข้ามรายการที่เกิดก่อนเวลานี้
- *   kind = 'errors'   → set NOTIF_CLEARED_errors  = now (ms)
- *   kind = 'actions'  → set NOTIF_CLEARED_actions = now (ms) + ลบ CONTINUATION_ keys
- *   kind = 'pending'  → set NOTIF_CLEARED_pending = now (ms) + ลบ CONTINUATION_ keys
  */
 function clearNotifications_(kind) {
   const props = PropertiesService.getScriptProperties();

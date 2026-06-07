@@ -320,6 +320,67 @@ function clearContactSyncCache() {
   Logger.log('Contact sync cache cleared.');
 }
 
+/**
+ * อัปเดต Contact ที่มีอยู่ใน PEAK ให้มีเลขบัตรประชาชน + ที่อยู่
+ * ใช้สำหรับ backfill สัญญาที่ sync contact ไปก่อนที่จะมี col ID_CARD/ADDRESS ใน Sum sheet
+ * ข้าม contact ที่มีข้อมูลครบแล้ว — safe ที่จะรันซ้ำได้
+ */
+function runUpdateContactDetails(sheetName) {
+  preFlightChecks_();
+  sheetName = sheetName || getCurrentSumSheetName();
+  const ss    = SpreadsheetApp.openById(getSpreadsheetId());
+  const sheet = getSheetByNameSmart_(ss, sheetName);
+  if (!sheet) throw new Error(`ไม่พบ Sheet "${sheetName}"`);
+
+  toast(`⏳ อัปเดตเลขบัตร + ที่อยู่ ใน PEAK Contact — ${sheetName}`, 'FinFin');
+
+  const data  = getSumData_(sheet);
+  let countOk = 0, countSkip = 0, countError = 0;
+  const guard = makeTimeGuard_(5);
+  let stoppedEarly = false;
+
+  for (let i = 0; i < data.length; i++) {
+    if (guard.expired()) { stoppedEarly = true; break; }
+    const row     = data[i];
+    const invCode = String(row[CONFIG.COL.INV]      || '').trim();
+    const idCard  = String(row[CONFIG.COL.ID_CARD]  || '').trim();
+    const address = String(row[CONFIG.COL.ADDRESS]  || '').trim();
+    if (!invCode || (!idCard && !address)) { countSkip++; continue; }
+
+    try {
+      const getRes   = callPeakAPI('get', '/contacts', null, { code: invCode });
+      const contacts = getRes && getRes.PeakContacts && getRes.PeakContacts.contacts;
+      const c        = Array.isArray(contacts) ? contacts[0] : contacts;
+      if (!c || !(c.id || c.contactId || c.Id)) {
+        Logger.log(`UpdateDetails [${invCode}]: ไม่พบ contact ใน PEAK — ข้าม`);
+        countSkip++;
+        continue;
+      }
+
+      const needUpdate = (idCard && !c.idCardNumber) || (address && !c.address);
+      if (!needUpdate) { countSkip++; continue; }
+
+      const payload = Object.assign({}, c, {
+        ...(idCard  ? { idCardNumber: idCard  } : {}),
+        ...(address ? { address:      address } : {}),
+      });
+      callPeakAPI('put', '/contacts', { PeakContacts: { contacts: [payload] } });
+      Logger.log(`Updated [${invCode}]: idCard=${idCard ? '✓' : '-'} address=${address ? '✓' : '-'}`);
+      countOk++;
+    } catch (e) {
+      Logger.log(`UpdateDetails failed [${invCode}]: ${e.message}`);
+      countError++;
+    }
+    Utilities.sleep(200);
+  }
+
+  const tail    = stoppedEarly ? ' ⏸️ หมดเวลา — รันซ้ำเพื่อทำต่อ' : '';
+  const summary = `อัปเดต Contact details — อัปเดต: ${countOk}, ข้ามแล้ว: ${countSkip}, Error: ${countError}${tail}`;
+  toast(summary, 'FinFin', 10);
+  Logger.log(summary);
+  return summary;
+}
+
 // ─── Fix wrong-name contacts in PEAK ─────────────────────────────────────────
 /**
  * แก้ชื่อ contact ใน PEAK ที่มี prefix ซ้ำ (เช่น "นายนายธัชกร" → "นายธัชกร")
