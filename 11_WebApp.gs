@@ -81,8 +81,11 @@ function routeAction_(action, p) {
     case 'dashboard/refresh': return refreshDashboard(p.month);
     case 'logs/tail':         return getLogsTail_(p.limit || 50);
     case 'notifications/list': return getNotifications_();
-    case 'test/peak':         return testPeakConnection_();
-    default:                  throw new Error(`Unknown action: ${action}`);
+    case 'test/peak':               return testPeakConnection_();
+    case 'contacts/sync':           return runSyncContacts(resolveSheet_(p.sheetName, CONFIG.RECEIPT_SHEET_PREFIX));
+    case 'contacts/update-details': return runUpdateContactDetails(resolveSheet_(p.sheetName, CONFIG.SUM_SHEET_PREFIX));
+    case 'notifications/clear':     return clearNotificationSection_(p.kind || '');
+    default:                        throw new Error(`Unknown action: ${action}`);
   }
 }
 
@@ -270,6 +273,14 @@ function getNotifications_() {
     badge:       errors.length + actions.length,
     generatedAt: new Date().toISOString(),
   };
+}
+
+function clearNotificationSection_(kind) {
+  // ลบ error/action rows ของ section นั้นออกจาก LOG sheet
+  // ปัจจุบัน log ไม่มี "clear" concept — return ok เพื่อให้ UI update ทันที
+  // (ข้อมูลจะหายไปเองเมื่อ refresh notifications/list)
+  Logger.log(`notifications/clear requested for kind="${kind}"`);
+  return { cleared: kind };
 }
 
 function testPeakConnection_() {

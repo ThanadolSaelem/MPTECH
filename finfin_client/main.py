@@ -100,10 +100,11 @@ TASKS = [
     ("ออกใบกำกับภาษี",          "part1/run",        "sheetName"),
     ("ค่าบริการเพิ่มเติม",       "part1/servicefee", "sheetName"),
     ("ออกใบเสร็จค่าปรับ",       "part3/run",        "sheetName"),
-    ("ออกใบลดหนี้ (คืนเครื่อง)", "part4/run",        None),
-    ("Match Statement",         "part5/run",        "sheetName"),
-    ("Poll Queue ทันที",         "poll/now",         None),
-    ("ทดสอบ PEAK Connection",    "test/peak",        None),
+    ("ออกใบลดหนี้ (คืนเครื่อง)",         "part4/run",               None),
+    ("Match Statement",                "part5/run",               "sheetName"),
+    ("อัปเดตเลขบัตร + ที่อยู่ใน PEAK", "contacts/update-details", "sheetName"),
+    ("Poll Queue ทันที",               "poll/now",                None),
+    ("ทดสอบ PEAK Connection",          "test/peak",               None),
 ]
 
 # accent color per card (used as top border stripe)
