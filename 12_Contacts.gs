@@ -364,7 +364,10 @@ function runUpdateContactDetails(sheetName) {
         ...(idCard  ? { taxNumber: idCard   } : {}),
         ...(address ? { address:   address } : {}),
       });
-      callPeakAPI('put', '/contacts', { PeakContacts: { contacts: [payload] } });
+      delete payload.resCode;
+      delete payload.resDesc;
+      // PEAK edit endpoint: POST /contacts/edit + contacts เป็น object เดี่ยว (ไม่ใช่ array)
+      callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
       Logger.log(`Updated [${invCode}]: idCard=${idCard ? '✓' : '-'} address=${address ? '✓' : '-'}`);
       countOk++;
     } catch (e) {
@@ -430,7 +433,10 @@ function runFixContactNames(sheetName) {
 
       const oldName = c.name;
       const payload = Object.assign({}, c, { name: correctName });
-      callPeakAPI('put', '/contacts', { PeakContacts: { contacts: [payload] } });
+      delete payload.resCode;
+      delete payload.resDesc;
+      // PEAK edit endpoint: POST /contacts/edit + contacts เป็น object เดี่ยว
+      callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
       Logger.log(`Fixed [${invCode}]: "${oldName}" → "${correctName}"`);
       countOk++;
     } catch (e) {
@@ -460,8 +466,10 @@ function testFixOneContact() {
   Logger.log(`Current: ${c.name} (id=${c.id})`);
 
   const payload = Object.assign({}, c, { name: newName });
-  const putRes = callPeakAPI('put', '/contacts', { PeakContacts: { contacts: [payload] } });
-  Logger.log(`PUT response: ${JSON.stringify(putRes).slice(0, 400)}`);
+  delete payload.resCode;
+  delete payload.resDesc;
+  const editRes = callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
+  Logger.log(`EDIT response: ${JSON.stringify(editRes).slice(0, 400)}`);
 }
 
 /**
@@ -830,6 +838,28 @@ function probeContactEdit() {
   Logger.log('\n─── เสร็จ ───');
   Logger.log('ถ้าเจอ 🎉 → คืนค่าชื่อเดิม + ลบ taxNumber/address ทดสอบใน PEAK UI');
   Logger.log('ถ้าทุกอันยัง ❌ → แจ้งผล จะลอง endpoint อื่นต่อ');
+}
+
+/**
+ * Cleanup: คืนค่า contact ทดสอบ (1754102677) กลับเป็น
+ *   name="เอกณัฏฐ์ ยงยุทธ"  taxNumber=""  address=""
+ * รันหลัง probe สำเร็จเพื่อล้างค่าทดสอบ
+ */
+function restoreProbeContact() {
+  const TEST_INV_CODE = '1754102677';
+  const r = callPeakAPI('get', '/contacts', null, { code: TEST_INV_CODE });
+  const cs = r && r.PeakContacts && r.PeakContacts.contacts;
+  const c  = Array.isArray(cs) ? cs[0] : cs;
+  if (!c) { Logger.log('ไม่พบ contact'); return; }
+  const payload = Object.assign({}, c, {
+    name: 'เอกณัฏฐ์ ยงยุทธ',
+    taxNumber: '',
+    address: '',
+  });
+  delete payload.resCode;
+  delete payload.resDesc;
+  const res = callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
+  Logger.log(`คืนค่าเรียบร้อย: ${JSON.stringify(res).slice(0, 200)}`);
 }
 
 /**
