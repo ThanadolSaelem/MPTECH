@@ -545,14 +545,9 @@ function runPart1_ServiceFee(sheetName) {
 
 function ensureSvcFeeHeader_(sheet) {
   const headerRow = CONFIG.SUM_HEADER_ROW;
-  const lastCol = sheet.getLastColumn();
-  const targetCol = CONFIG.COL.DUE_DATE + 1;
-  if (lastCol >= targetCol + 1) {
-    const existing = sheet.getRange(headerRow, targetCol + 1).getValue();
-    if (!existing) sheet.getRange(headerRow, targetCol + 1).setValue('เลขที่ PEAK (ค่าบริการ)');
-  } else {
-    sheet.getRange(headerRow, targetCol + 1).setValue('เลขที่ PEAK (ค่าบริการ)');
-  }
+  const targetCol = CONFIG.COL.SVC_DOC_COL;
+  const existing = sheet.getRange(headerRow, targetCol + 1).getValue();
+  if (!existing) sheet.getRange(headerRow, targetCol + 1).setValue('เลขที่ PEAK (ค่าบริการ)');
   return targetCol;
 }
 

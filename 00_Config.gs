@@ -37,39 +37,46 @@ const CONFIG = {
 
   // Sheet naming prefixes — ต่อท้ายด้วย "MM.YYYY" อัตโนมัติ → "Sum05.2026"
   SUM_SHEET_PREFIX: 'Sum',
-  RECEIPT_SHEET_PREFIX: 'Receipt',
+  RECEIPT_SHEET_PREFIX: 'Receipt',          // canonical prefix (backward compat)
+  RECEIPT_SHEET_PREFIXES: ['Receipt', 'RE'], // ตั้งแต่ Mar 2026 ใช้ "RE" แทน "Receipt"
   STATEMENT_SHEET_PREFIX: 'SCB',
 
   // Sheet ไฟล์รับคืนเครื่อง (อยู่คนละ Spreadsheet ได้)
   RETURN_SPREADSHEET_ID: 'SPREADSHEET_ID_OF_RETURN_FILE',
   RETURN_SHEET_NAME: 'ไฟล์รับคืน',
 
-  // ─── Sum Sheet Columns (รายละเอียดสัญญา — Mar 2026 layout) ─────────────────────
+  // ─── Sum Sheet Columns (รายละเอียดสัญญา — Sum04/05 layout, Apr 2026+) ──────────
   // Header แถว 2, data เริ่มแถว 3
   SUM_HEADER_ROW: 2,
   COL: {
-    SEQ:              0,   // ลำดับ
-    CONTRACT_DATE:    1,   // วันที่ทำสัญญา
-    INV:              2,   // เลขที่สัญญา ← KEY (join กับ Receipt, SCB)
-    TITLE:            3,   // คำนำหน้าชื่อ
-    NAME:             4,   // ชื่อลูกค้า
-    CONTRACT_AMT:     5,   // ยอดทำสัญญา
-    INSTALLMENT_N:    6,   // จำนวนงวด
-    INSTALLMENT_AMT:  7,   // ผ่อนงวดละ
-    PAY_DAY:          8,   // จ่ายทุกวันที่
-    BRANCH:           9,   // สาขา
-    AR_BEGIN:         10,  // ลูกหนี้คงเหลือต้นงวด
-    DOWN_OR_MONTHLY:  11,  // เงินดาวน์ / ค่างวด
-    LATE_FEE:         12,  // ค่าปรับ
-    SERVICE_FEE:      13,  // ค่าบริการเพิ่มเติม
-    CLOSEOUT_DISC:    14,  // ส่วนลดปิดยอด
-    AR_END:           15,  // ลูกหนี้คงเหลือปลายงวด
-    DUE_DATE:         16,  // วันที่ครบกำหนดค่างวด (MM.YY)
-    // output columns (auto-added by code — ห้ามแทรก col ระหว่างนี้)
-    // 17 = เลขที่ PEAK (ค่าบริการ)   DUE_DATE+1
-    // 18 = เลขที่ใบแจ้งหนี้ PEAK     DUE_DATE+2
-    ID_CARD:          19,  // เลขบัตรประชาชน 13 หลัก (นกเพิ่ม)
-    ADDRESS:          20,  // ที่อยู่ (นกเพิ่ม)
+    SEQ:              0,   // A ลำดับ
+    CONTRACT_DATE:    1,   // B วันที่ทำสัญญา
+    INV:              2,   // C เลขที่สัญญา ← KEY (join กับ Receipt/RE, SCB)
+    TITLE:            3,   // D คำนำหน้าชื่อ
+    NAME:             4,   // E ชื่อลูกค้า
+    ADDRESS:          5,   // F ที่อยู่
+    ID_CARD:          6,   // G เลขที่บัตรปชช. 13 หลัก
+    PRODUCT:          7,   // H ชื่อสินค้า
+    CONTRACT_AMT:     8,   // I ยอดทำสัญญา
+    INSTALLMENT_N:    9,   // J จำนวนงวด
+    INSTALLMENT_AMT:  10,  // K ผ่อนงวดละ
+    PAY_DAY:          11,  // L จ่ายทุกวันที่
+    BRANCH:           12,  // M สาขา
+    AR_BEGIN:         13,  // N ลูกหนี้คงเหลือต้นงวด
+    DOWN:             14,  // O เงินดาวน์
+    MONTHLY:          15,  // P ค่างวด
+    ADJ_AMT:          16,  // Q Adj ค่างวด
+    LATE_FEE:         17,  // R ค่าปรับ
+    SERVICE_FEE:      18,  // S ค่าบริการเพิ่มเติม
+    CLOSEOUT:         19,  // T คืนเครื่อง
+    CLOSEOUT_DISC:    20,  // U ส่วนลดปิดยอด
+    AR_END:           21,  // V ลูกหนี้คงเหลือปลายงวด
+    DUE_DATE:         22,  // W วันที่ครบกำหนดค่างวด
+    RETURN_DATE:      23,  // X วันที่รับคืน
+    STATUS:           24,  // Y สถานะลูกหนี้
+    // output columns (auto-added by code — after STATUS)
+    SVC_DOC_COL:      25,  // Z  เลขที่ PEAK (ค่าบริการ)
+    INV_DOC_COL:      26,  // AA เลขที่ใบแจ้งหนี้ PEAK
   },
 
   // ─── Receipt Sheet Columns (รายการรับชำระ — source of truth) ─────────────────
@@ -157,7 +164,7 @@ const CONFIG = {
   // ─── Backward-compat / legacy keys ─────────────────────────────────────────────
   STATEMENT_SHEET_NAME: 'SCB',
   SVC_FEE_COL: {
-    AMT:  13,
+    AMT:  18,  // SERVICE_FEE col in Sum04/05 layout
     DATE: -1, TYPE: -1, DOC: -1,
   },
 };

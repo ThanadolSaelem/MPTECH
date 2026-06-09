@@ -18,13 +18,20 @@ function refreshDashboard(monthOverride) {
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
   const month = (monthOverride && String(monthOverride).trim()) || getCurrentMonthSheetName();
 
-  const receiptName = `${CONFIG.RECEIPT_SHEET_PREFIX}${month}`;
-  const sumName     = `${CONFIG.SUM_SHEET_PREFIX}${month}`;
-  const stmtName    = `${CONFIG.STATEMENT_SHEET_PREFIX}${month}`;
+  const sumName  = `${CONFIG.SUM_SHEET_PREFIX}${month}`;
+  const stmtName = `${CONFIG.STATEMENT_SHEET_PREFIX}${month}`;
 
-  const receiptSheet = ss.getSheetByName(receiptName);
-  const sumSheet     = ss.getSheetByName(sumName);
-  const stmtSheet    = ss.getSheetByName(stmtName);
+  // Receipt sheet อาจชื่อ "Receipt05.2026" หรือ "RE05.2026" (Mar 2026+)
+  const receiptPrefixes = CONFIG.RECEIPT_SHEET_PREFIXES || [CONFIG.RECEIPT_SHEET_PREFIX];
+  let receiptSheet = null, receiptName = '';
+  for (const p of receiptPrefixes) {
+    const s = ss.getSheetByName(p + month);
+    if (s) { receiptSheet = s; receiptName = s.getName(); break; }
+  }
+  if (!receiptName) receiptName = receiptPrefixes[0] + month;
+
+  const sumSheet  = ss.getSheetByName(sumName);
+  const stmtSheet = ss.getSheetByName(stmtName);
 
   return {
     month,
@@ -66,7 +73,7 @@ function countPart1Tax_(sheet) {
 
 function countPart1Svc_(sheet) {
   if (!sheet) return notFound_();
-  const svcDocCol = CONFIG.COL.DUE_DATE + 1;
+  const svcDocCol = CONFIG.COL.SVC_DOC_COL;
   let done = 0, missing = 0;
   for (const row of getSheetRange_(sheet, CONFIG.SUM_HEADER_ROW)) {
     if (parseAmount(row[CONFIG.COL.SERVICE_FEE]) <= 0) continue;
@@ -79,7 +86,7 @@ function countPart1Svc_(sheet) {
 
 function countPart2Inv_(sheet) {
   if (!sheet) return notFound_();
-  const invDocCol = CONFIG.COL.DUE_DATE + 2;
+  const invDocCol = CONFIG.COL.INV_DOC_COL;
   let done = 0, missing = 0;
   for (const row of getSheetRange_(sheet, CONFIG.SUM_HEADER_ROW)) {
     const invCode = String(row[CONFIG.COL.INV] || '').trim();

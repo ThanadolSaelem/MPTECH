@@ -233,7 +233,7 @@ function buildInvoiceAllInOnePayload(
 
 function ensureInvoiceDocHeader_(sheet) {
   const headerRow = CONFIG.SUM_HEADER_ROW;
-  const targetCol = CONFIG.COL.DUE_DATE + 2;  // เว้น col เดียวจาก SVC fee doc
+  const targetCol = CONFIG.COL.INV_DOC_COL;
   const currentHeader = sheet.getRange(headerRow, targetCol + 1).getValue();
   if (!currentHeader) {
     sheet.getRange(headerRow, targetCol + 1).setValue('เลขที่ใบแจ้งหนี้ PEAK');
@@ -305,10 +305,14 @@ function buildRemainingDueDates_(firstDue, count) {
  */
 function buildPart1CoveredSet_(ss, sumSheetName) {
   const suffix = sumSheetName.replace(new RegExp('^' + CONFIG.SUM_SHEET_PREFIX), '');
-  const receiptName = CONFIG.RECEIPT_SHEET_PREFIX + suffix;
   const covered = new Set();
   try {
-    const rSheet = ss.getSheetByName(receiptName);
+    const prefixes = CONFIG.RECEIPT_SHEET_PREFIXES || [CONFIG.RECEIPT_SHEET_PREFIX];
+    let rSheet = null;
+    for (const p of prefixes) {
+      rSheet = ss.getSheetByName(p + suffix);
+      if (rSheet) break;
+    }
     if (!rSheet) return covered;
     const startRow = CONFIG.RECEIPT_HEADER_ROW + 1;
     const lastRow = rSheet.getLastRow();
