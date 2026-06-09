@@ -791,10 +791,10 @@ function probeContactEdit() {
   const TEST_NAME = `${before.name} [${STAMP}]`;
   const edited    = Object.assign({}, clean, { name: TEST_NAME, taxNumber: TEST_TAX, address: TEST_ADDR });
 
+  // EDIT endpoint ต้องการ contacts เป็น object เดี่ยว ไม่ใช่ array (ยืนยันจาก error 400)
   const candidates = [
-    { label: 'POST /contacts/edit (full body)',   path: '/contacts/edit', body: { PeakContacts: { contacts: [edited] } } },
-    { label: 'PUT  /contacts/edit (full body)',   path: '/contacts/edit', body: { PeakContacts: { contacts: [edited] } }, method: 'put' },
-    { label: 'POST /Contacts/edit (cap C)',       path: '/Contacts/edit', body: { PeakContacts: { contacts: [edited] } } },
+    { label: 'POST /contacts/edit (object)',      path: '/contacts/edit', body: { PeakContacts: { contacts: edited } } },
+    { label: 'POST /contacts/edit (object,min)',  path: '/contacts/edit', body: { PeakContacts: { contacts: { id: before.id, code: before.code, name: TEST_NAME, type: before.type, taxNumber: TEST_TAX, address: TEST_ADDR } } } },
   ];
 
   for (const cand of candidates) {
