@@ -360,13 +360,15 @@ function runUpdateContactDetails(sheetName) {
       const needUpdate = (idCard && !c.taxNumber) || (address && !c.address);
       if (!needUpdate) { countSkip++; continue; }
 
-      const payload = Object.assign({}, c, {
-        ...(idCard  ? { taxNumber: idCard   } : {}),
+      // ส่งเฉพาะ field ที่จำเป็น — หลีก "Contact name is duplicated" จาก PEAK
+      const payload = {
+        id:   c.id,
+        code: c.code,
+        type: c.type,
+        name: c.name,
+        ...(idCard  ? { taxNumber: idCard  } : {}),
         ...(address ? { address:   address } : {}),
-      });
-      delete payload.resCode;
-      delete payload.resDesc;
-      // PEAK edit endpoint: POST /contacts/edit + contacts เป็น object เดี่ยว (ไม่ใช่ array)
+      };
       callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
       Logger.log(`Updated [${invCode}]: idCard=${idCard ? '✓' : '-'} address=${address ? '✓' : '-'}`);
       countOk++;
@@ -396,9 +398,7 @@ function debugUpdateOneContact() {
   Logger.log('GET taxNumber before: "' + (c && c.taxNumber) + '"');
   Logger.log('ID_CARD ที่จะส่ง: "' + ID_CARD + '" (length=' + ID_CARD.length + ')');
 
-  const payload = Object.assign({}, c, { taxNumber: ID_CARD });
-  delete payload.resCode;
-  delete payload.resDesc;
+  const payload = { id: c.id, code: c.code, type: c.type, name: c.name, taxNumber: ID_CARD };
   Logger.log('Payload taxNumber: "' + payload.taxNumber + '"');
 
   const editRes = callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
