@@ -360,15 +360,13 @@ function runUpdateContactDetails(sheetName) {
       const needUpdate = (idCard && !c.taxNumber) || (address && !c.address);
       if (!needUpdate) { countSkip++; continue; }
 
-      // ส่งเฉพาะ field ที่จำเป็น — หลีก "Contact name is duplicated" ของ PEAK
-      const payload = {
-        id:   c.id,
-        code: c.code,
-        type: c.type,
-        name: c.name,
+      // ต้องส่ง full object กลับ — minimal payload คืน HTTP 200 แต่ไม่ persist
+      const payload = Object.assign({}, c, {
         ...(idCard  ? { taxNumber: idCard  } : {}),
         ...(address ? { address:   address } : {}),
-      };
+      });
+      delete payload.resCode;
+      delete payload.resDesc;
       try {
         callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
         Logger.log(`Updated [${invCode}]: idCard=${idCard ? '✓' : '-'} address=${address ? '✓' : '-'}`);
@@ -376,11 +374,10 @@ function runUpdateContactDetails(sheetName) {
       } catch (editErr) {
         const msg = String(editErr.message || '');
         if (/100.*duplic|duplic.*100/i.test(msg) || /Contact name is duplicated/i.test(msg)) {
-          // ชื่อซ้ำใน PEAK — ต้องแก้ผ่าน PEAK UI (merge/ลบ contact ซ้ำ)
           Logger.log(`ข้ามซ้ำ [${invCode}]: ชื่อ "${c.name}" ซ้ำใน PEAK — แก้ใน UI ก่อน`);
           countSkip++;
         } else {
-          throw editErr;  // re-throw ให้ outer catch จัดการ
+          throw editErr;
         }
       }
     } catch (e) {
@@ -395,6 +392,23 @@ function runUpdateContactDetails(sheetName) {
   toast(summary, 'FinFin', 10);
   Logger.log(summary);
   return summary;
+}
+
+// ─── Verify: GET contact หลัง update เพื่อเช็คว่า persist จริงไหม ──────────────
+function verifyUpdatedContacts() {
+  const TEST_CODES = ['1751793623', '1751792334', '1751975511', '1752150136'];
+  Logger.log('=== Verify contact updates ===');
+  for (const code of TEST_CODES) {
+    try {
+      const res = callPeakAPI('get', '/contacts', null, { code });
+      const c   = res && res.PeakContacts && res.PeakContacts.contacts;
+      const cc  = Array.isArray(c) ? c[0] : c;
+      if (!cc) { Logger.log(`[${code}] ไม่พบ`); continue; }
+      Logger.log(`[${code}] ${cc.name} | taxNumber:"${cc.taxNumber}" | address:"${cc.address && cc.address.slice(0, 40)}"`);
+    } catch (e) {
+      Logger.log(`[${code}] error: ${e.message}`);
+    }
+  }
 }
 
 // ─── Fix wrong-name contacts in PEAK ─────────────────────────────────────────
