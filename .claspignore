@@ -1,0 +1,11 @@
+# Node.js / Playwright scripts — ไม่ใช่ GAS
+fix_invoices.js
+collect_invoices.js
+*.py
+
+# Misc
+*.md
+*.json
+node_modules/
+finfin_client/
+.git/

@@ -575,6 +575,21 @@ function debugContactCreate() {
 }
 
 /**
+ * Dump full GET response ของ contact — ใช้ดู field names จริงที่ PEAK ส่งกลับมา
+ * รันแล้วดู log ทั้งหมด → หา field ที่ตรงกับ "เลขทะเบียน 13 หลัก" และ "ที่อยู่"
+ */
+function probeGetFullContact() {
+  const TEST_INV_CODE = '1754102677';
+  const getRes = callPeakAPI('get', '/contacts', null, { code: TEST_INV_CODE });
+  const contacts = getRes && getRes.PeakContacts && getRes.PeakContacts.contacts;
+  const c = Array.isArray(contacts) ? contacts[0] : contacts;
+  Logger.log('=== Full contact JSON ===');
+  Logger.log(JSON.stringify(c, null, 2));
+  Logger.log('=== Keys ===');
+  Logger.log(Object.keys(c || {}).join(', '));
+}
+
+/**
  * Probe: ทดสอบ PUT idCardNumber + address เข้า PEAK contact
  *
  * วิธีใช้:
