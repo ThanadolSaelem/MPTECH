@@ -751,6 +751,88 @@ function probeUpdateVerify() {
 }
 
 /**
+ * Probe endpoint /edit — PEAK ใช้ pattern POST /{resource}/edit สำหรับแก้ไข
+ * (ยืนยันจาก docs: Products มี POST /api/v1/Products/edit)
+ *
+ * ทดสอบ POST /contacts/edit หลายรูปแบบ payload แล้ว GET กลับมา verify
+ * แต่ละรอบเปลี่ยนทั้ง name + taxNumber + address พร้อมกัน → ดูว่า field ไหน persist
+ */
+function probeContactEdit() {
+  const TEST_INV_CODE = '1754102677';
+  const STAMP = String(Date.now()).slice(-5);
+
+  const fetchContact_ = () => {
+    const r = callPeakAPI('get', '/contacts', null, { code: TEST_INV_CODE });
+    const cs = r && r.PeakContacts && r.PeakContacts.contacts;
+    return Array.isArray(cs) ? cs[0] : cs;
+  };
+
+  const postRaw_ = (path, body) => {
+    const res = UrlFetchApp.fetch(CONFIG.BASE_URL + path, {
+      method:             'post',
+      headers:            buildHeaders(),
+      contentType:        'application/json',
+      payload:            JSON.stringify(body),
+      muteHttpExceptions: true,
+    });
+    return { code: res.getResponseCode(), text: res.getContentText() };
+  };
+
+  const before = fetchContact_();
+  if (!before) { Logger.log('❌ ไม่พบ contact'); return; }
+  Logger.log(`เริ่มต้น: name="${before.name}" taxNumber="${before.taxNumber||''}" address="${before.address||''}"`);
+
+  const clean = Object.assign({}, before);
+  delete clean.resCode;
+  delete clean.resDesc;
+
+  const TEST_TAX  = '1234567890123';
+  const TEST_ADDR = `ทดสอบที่อยู่ ${STAMP}`;
+  const TEST_NAME = `${before.name} [${STAMP}]`;
+  const edited    = Object.assign({}, clean, { name: TEST_NAME, taxNumber: TEST_TAX, address: TEST_ADDR });
+
+  const candidates = [
+    { label: 'POST /contacts/edit (full body)',   path: '/contacts/edit', body: { PeakContacts: { contacts: [edited] } } },
+    { label: 'PUT  /contacts/edit (full body)',   path: '/contacts/edit', body: { PeakContacts: { contacts: [edited] } }, method: 'put' },
+    { label: 'POST /Contacts/edit (cap C)',       path: '/Contacts/edit', body: { PeakContacts: { contacts: [edited] } } },
+  ];
+
+  for (const cand of candidates) {
+    Logger.log(`\n═══ ${cand.label} ═══`);
+    let res;
+    if (cand.method === 'put') {
+      const r = UrlFetchApp.fetch(CONFIG.BASE_URL + cand.path, {
+        method: 'put', headers: buildHeaders(), contentType: 'application/json',
+        payload: JSON.stringify(cand.body), muteHttpExceptions: true,
+      });
+      res = { code: r.getResponseCode(), text: r.getContentText() };
+    } else {
+      res = postRaw_(cand.path, cand.body);
+    }
+    Logger.log(`→ HTTP ${res.code}`);
+    Logger.log(`response: ${res.text || '(ว่างเปล่า)'}`);
+    if (res.code === 200) {
+      Utilities.sleep(800);
+      const after = fetchContact_();
+      Logger.log(`after GET: name="${after.name}" taxNumber="${after.taxNumber||''}" address="${after.address||''}"`);
+      const nameOk = after.name === TEST_NAME;
+      const taxOk  = after.taxNumber === TEST_TAX;
+      const addrOk = after.address === TEST_ADDR;
+      Logger.log(`>>> name:${nameOk?'✅':'❌'}  tax:${taxOk?'✅':'❌'}  addr:${addrOk?'✅':'❌'}`);
+      if (nameOk || taxOk || addrOk) {
+        Logger.log(`🎉 พบ endpoint ที่ใช้ได้: ${cand.label}`);
+        break;
+      }
+    }
+    Utilities.sleep(500);
+  }
+
+  Logger.log('\n─── เสร็จ ───');
+  Logger.log('ถ้าเจอ 🎉 → คืนค่าชื่อเดิม + ลบ taxNumber/address ทดสอบใน PEAK UI');
+  Logger.log('ถ้าทุกอันยัง ❌ → แจ้งผล จะลอง endpoint อื่นต่อ');
+}
+
+/**
  * ทดสอบ _parseThaiName_ + POST contact จริงไปยัง PEAK สำหรับ prefix "อื่น ๆ"
  *
  * Phase 1 — parse เท่านั้น (ไม่เรียก API):
