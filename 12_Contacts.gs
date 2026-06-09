@@ -427,17 +427,12 @@ function debugPayloadVariations() {
   const TEST_TAX  = '1111111111111';
   const TEST_ADDR = 'ทดสอบ ADDR ' + Date.now();
 
+  const stripName = (obj) => { const o = Object.assign({}, obj); delete o.name; return o; };
   const variants = [
-    { label: 'V1: Object.assign (current)', body: Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR }) },
-    { label: 'V2: + firstName/lastName parsed', body: (() => {
-        const parts = String(c.name || '').trim().split(/\s+/);
-        return Object.assign({}, clean, {
-          taxNumber: TEST_TAX, address: TEST_ADDR,
-          firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || '',
-        });
-      })() },
-    { label: 'V3: name + space (force change)', body: Object.assign({}, clean, { name: c.name + ' ', taxNumber: TEST_TAX, address: TEST_ADDR }) },
-    { label: 'V4: full + branchCode "00000"', body: Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR, branchCode: '00000' }) },
+    { label: 'V5: omit name field entirely', body: stripName(Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR })) },
+    { label: 'V6: minimal w/o name (id+code+type+tax+addr)', body: { id: c.id, code: c.code, type: c.type, taxNumber: TEST_TAX, address: TEST_ADDR } },
+    { label: 'V7: append code to name (unique)', body: Object.assign({}, clean, { name: c.name + ' #' + c.code, taxNumber: TEST_TAX, address: TEST_ADDR }) },
+    { label: 'V8: full + isVatRegistered:false', body: Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR, isVatRegistered: false }) },
   ];
 
   for (const v of variants) {
