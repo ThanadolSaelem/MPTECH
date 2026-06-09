@@ -97,7 +97,9 @@ function routeAction_(action, p) {
 function resolveSheet_(name, prefix) {
   if (!name || !String(name).trim()) return null;
   const s = String(name).trim();
-  if (s.startsWith(prefix)) return s;
+  // Check against all known prefixes so "RE03.2026" isn't re-prefixed
+  const allPrefixes = Array.from(new Set([prefix, ...(CONFIG.RECEIPT_SHEET_PREFIXES || [])]));
+  if (allPrefixes.some(p => s.startsWith(p))) return s;
   return `${prefix}${s}`;
 }
 
