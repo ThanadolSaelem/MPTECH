@@ -386,6 +386,34 @@ function runUpdateContactDetails(sheetName) {
   return summary;
 }
 
+// ─── Diagnostic: ตรวจว่า sheet มีข้อมูลที่ col ไหน ─────────────────────────────
+function debugCheckSumColumns() {
+  const sheetName = getCurrentSumSheetName();
+  const ss = SpreadsheetApp.openById(getSpreadsheetId());
+  const sheet = getSheetByNameSmart_(ss, sheetName);
+  if (!sheet) { Logger.log('ไม่พบ sheet: ' + sheetName); return; }
+
+  Logger.log('Sheet: ' + sheetName);
+  const data = getSumData_(sheet);
+  let shown = 0;
+
+  for (let i = 0; i < data.length && shown < 5; i++) {
+    const row = data[i];
+    const inv = String(row[CONFIG.COL.INV] || '').trim();
+    if (!inv) continue;
+
+    const addr   = String(row[CONFIG.COL.ADDRESS]  || '').trim();  // col 5 (F)
+    const idCard = String(row[CONFIG.COL.ID_CARD]  || '').trim();  // col 6 (G)
+
+    // เปรียบเทียบกับตำแหน่งเก่า (col 20 และ 19) เพื่อดูว่า data อยู่ที่ไหน
+    const addrOld   = String(row[20] || '').trim();
+    const idCardOld = String(row[19] || '').trim();
+
+    Logger.log(`[${inv}] NEW→ addr:${addr||'(ว่าง)'} idCard:${idCard||'(ว่าง)'}  |  OLD→ addr:${addrOld||'(ว่าง)'} idCard:${idCardOld||'(ว่าง)'}`);
+    shown++;
+  }
+}
+
 // ─── Fix wrong-name contacts in PEAK ─────────────────────────────────────────
 
 function debugUpdateOneContact() {
