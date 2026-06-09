@@ -541,23 +541,28 @@ class MTechApp(ctk.CTk):
         p = ctk.CTkFrame(self.content, fg_color="transparent")
 
         ctk.CTkLabel(p, text="Settings", font=_F(32, True),
-                     text_color=TXT).pack(anchor="w", pady=(0, 8))
-
-        ctk.CTkLabel(p, text="GAS URL · API Key · CONNECT_ID · USER_TOKEN ฝังในโปรแกรมแล้ว — กรุณากรอกเฉพาะ Spreadsheet ID",
-                     font=_F(13), text_color=TXT3, anchor="w", justify="left",
-                     wraplength=680).pack(anchor="w", pady=(0, 20))
+                     text_color=TXT).pack(anchor="w", pady=(0, 20))
 
         form = ctk.CTkScrollableFrame(p, fg_color="transparent",
                                       scrollbar_button_color=SURFACE2)
         form.pack(fill="both", expand=True)
 
+        self._field(form, "GAS Web App URL", "gas_url",
+                    ph="https://script.google.com/macros/s/AKfycb…/exec")
+        self._field(form, "API Key", "api_key", ph="shared secret", show="•")
+
+        ctk.CTkFrame(form, height=1, fg_color=BORDER).pack(fill="x", pady=(24, 16))
         row = ctk.CTkFrame(form, fg_color="transparent")
         row.pack(fill="x", pady=(0, 4))
-        ctk.CTkLabel(row, text="Google Spreadsheet", font=_F(15, True),
+        ctk.CTkLabel(row, text="PEAK Credentials", font=_F(15, True),
                      text_color=TXT).pack(side="left")
         ctk.CTkLabel(row, text="  ·  จะส่งไปเก็บที่ GAS ScriptProperties",
                      font=_F(12), text_color=TXT3).pack(side="left")
 
+        self.e_connect = self._plain_field(form, "CONNECT_ID",
+                                           initial=self.cfg.get("connect_id", ""))
+        self.e_token   = self._plain_field(form, "USER_TOKEN", show="•",
+                                           initial=self.cfg.get("user_token", ""))
         self.e_ss      = self._plain_field(form, "SPREADSHEET_ID",
                                            extract_sheet_id=True,
                                            initial=self.cfg.get("spreadsheet_id", ""))
@@ -577,18 +582,19 @@ class MTechApp(ctk.CTk):
 
         b1 = _white_btn(btns, "Save Local", 140, self._save)
         b1.pack(side="left", padx=(0, 10))
-        Tooltip(b1, "บันทึก Spreadsheet ID ลงเครื่องนี้")
+        Tooltip(b1, "บันทึก GAS URL และ API Key ลงเครื่องนี้")
 
         b2 = _white_btn(btns, "Push to GAS", 140, self._push)
         b2.pack(side="left", padx=(0, 10))
-        Tooltip(b2, "ส่ง CONNECT_ID / USER_TOKEN (จากค่าฝัง) + SPREADSHEET_ID ไปเก็บที่ GAS ScriptProperties")
+        Tooltip(b2, "ส่ง PEAK Credentials ไปเก็บที่ GAS ScriptProperties\n"
+                    "(CONNECT_ID / USER_TOKEN / SPREADSHEET_ID)")
 
         b3 = ctk.CTkButton(btns, text="Test Connection", width=160,
             fg_color=WHITE, hover_color=SURFACE2,
             text_color=TXT, border_color=BORDER, border_width=1,
             font=_F(13), corner_radius=6, command=self._test_conn)
         b3.pack(side="left")
-        Tooltip(b3, "ทดสอบว่าเชื่อมต่อ GAS Web App ได้")
+        Tooltip(b3, "ทดสอบว่าเชื่อมต่อ GAS Web App ได้\nต้องกด Save Local ก่อน")
 
         self.cfg_status = ctk.CTkLabel(p, text="", anchor="w",
                                        font=_F(13))
@@ -918,6 +924,8 @@ class MTechApp(ctk.CTk):
     # ── Actions ───────────────────────────────────────────────────────────────
 
     def _save(self) -> None:
+        self.cfg["gas_url"]               = self._e_gas_url.get().strip()
+        self.cfg["api_key"]               = self._e_api_key.get().strip()
         self.cfg["spreadsheet_id"]        = self.e_ss.get().strip()
         self.cfg["return_spreadsheet_id"] = self.e_ret.get().strip()
         config.save(self.cfg)
@@ -928,8 +936,8 @@ class MTechApp(ctk.CTk):
     def _push(self) -> None:
         self._save()
         params = {k: v for k, v in {
-            "CONNECT_ID":            self.cfg.get("connect_id", ""),
-            "USER_TOKEN":            self.cfg.get("user_token", ""),
+            "CONNECT_ID":            self.e_connect.get().strip(),
+            "USER_TOKEN":            self.e_token.get().strip(),
             "SPREADSHEET_ID":        self.e_ss.get().strip(),
             "RETURN_SPREADSHEET_ID": self.e_ret.get().strip(),
         }.items() if v}
