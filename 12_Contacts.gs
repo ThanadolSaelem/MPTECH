@@ -140,8 +140,8 @@ function ensureContactsBatch_(codeNameMap) {
     let contactPayload;
     // ฟิลด์ข้อมูลประชาชน/ที่อยู่ (ใส่ถ้ามีค่า — ใช้ได้ทั้ง juristic และ individual)
     const extraFields = {
-      ...(idCard  ? { idCardNumber: idCard  } : {}),
-      ...(address ? { address:      address } : {}),
+      ...(idCard  ? { taxNumber: idCard   } : {}),
+      ...(address ? { address:   address } : {}),
     };
 
     if (_isJuristic_(displayName)) {
@@ -357,12 +357,12 @@ function runUpdateContactDetails(sheetName) {
         continue;
       }
 
-      const needUpdate = (idCard && !c.idCardNumber) || (address && !c.address);
+      const needUpdate = (idCard && !c.taxNumber) || (address && !c.address);
       if (!needUpdate) { countSkip++; continue; }
 
       const payload = Object.assign({}, c, {
-        ...(idCard  ? { idCardNumber: idCard  } : {}),
-        ...(address ? { address:      address } : {}),
+        ...(idCard  ? { taxNumber: idCard   } : {}),
+        ...(address ? { address:   address } : {}),
       });
       callPeakAPI('put', '/contacts', { PeakContacts: { contacts: [payload] } });
       Logger.log(`Updated [${invCode}]: idCard=${idCard ? '✓' : '-'} address=${address ? '✓' : '-'}`);
@@ -590,7 +590,7 @@ function probeGetFullContact() {
 }
 
 /**
- * Probe: ทดสอบ PUT idCardNumber + address เข้า PEAK contact
+ * Probe: ทดสอบ PUT taxNumber + address เข้า PEAK contact
  *
  * วิธีใช้:
  *   1. เปลี่ยน TEST_INV_CODE เป็นเลขสัญญาจริงที่มี contact ใน PEAK แล้ว
@@ -598,7 +598,7 @@ function probeGetFullContact() {
  *   3. ดู log — หา "✅ HTTP 200" แล้วเช็ค PEAK UI ว่าเลขบัตร/ที่อยู่เปลี่ยนจริงหรือไม่
  *   4. แจ้งผลให้ทีมแก้ runUpdateContactDetails ให้ใช้ endpoint ที่ถูก
  *
- * หลังเทสเสร็จ: เข้า PEAK UI → ผู้ติดต่อ → ลบ idCardNumber ทดสอบออก
+ * หลังเทสเสร็จ: เข้า PEAK UI → ผู้ติดต่อ → ลบ taxNumber ทดสอบออก
  */
 function probeContactIdCardUpdate() {
   const TEST_INV_CODE = '1754102677';  // ← เปลี่ยนเป็นเลขสัญญาจริง
@@ -610,22 +610,22 @@ function probeContactIdCardUpdate() {
   if (!c) { Logger.log('❌ ไม่พบ contact — เปลี่ยน TEST_INV_CODE แล้วลองใหม่'); return; }
 
   Logger.log(`Contact found: id=${c.id} name="${c.name}" type=${c.type}`);
-  Logger.log(`Current idCardNumber="${c.idCardNumber || ''}" address="${c.address || ''}"`);
+  Logger.log(`Current taxNumber="${c.taxNumber || ''}" address="${c.address || ''}"`);
 
   const TEST_ID_CARD = '1234567890123';  // เลขทดสอบ (13 หลัก)
   const TEST_ADDRESS = 'ที่อยู่ทดสอบ 99/9 กรุงเทพ';
 
   const fullPayload = Object.assign({}, c, {
-    idCardNumber: TEST_ID_CARD,
-    address:      TEST_ADDRESS,
+    taxNumber: TEST_ID_CARD,
+    address:   TEST_ADDRESS,
   });
   const minPayload = {
-    id:           c.id || c.contactId || c.Id,
-    code:         c.code,
-    name:         c.name,
-    type:         c.type,
-    idCardNumber: TEST_ID_CARD,
-    address:      TEST_ADDRESS,
+    id:        c.id || c.contactId || c.Id,
+    code:      c.code,
+    name:      c.name,
+    type:      c.type,
+    taxNumber: TEST_ID_CARD,
+    address:   TEST_ADDRESS,
   };
 
   const candidates = [
@@ -663,7 +663,7 @@ function probeContactIdCardUpdate() {
   Logger.log('1. หา endpoint ที่ขึ้น ✅ HTTP 200');
   Logger.log('2. เปิด PEAK UI → ผู้ติดต่อ → ค้น TEST_INV_CODE → ดูว่าเลขบัตร/ที่อยู่เปลี่ยนไหม');
   Logger.log('3. แจ้งผล → ทีมจะแก้ runUpdateContactDetails ให้ใช้ endpoint ที่ถูก');
-  Logger.log('4. ลบ idCardNumber ทดสอบออกจาก PEAK UI');
+  Logger.log('4. ลบ taxNumber ทดสอบออกจาก PEAK UI');
 }
 
 /**
