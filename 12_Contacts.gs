@@ -575,6 +575,83 @@ function debugContactCreate() {
 }
 
 /**
+ * Probe: ทดสอบ PUT idCardNumber + address เข้า PEAK contact
+ *
+ * วิธีใช้:
+ *   1. เปลี่ยน TEST_INV_CODE เป็นเลขสัญญาจริงที่มี contact ใน PEAK แล้ว
+ *   2. รันฟังก์ชันนี้ใน GAS editor
+ *   3. ดู log — หา "✅ HTTP 200" แล้วเช็ค PEAK UI ว่าเลขบัตร/ที่อยู่เปลี่ยนจริงหรือไม่
+ *   4. แจ้งผลให้ทีมแก้ runUpdateContactDetails ให้ใช้ endpoint ที่ถูก
+ *
+ * หลังเทสเสร็จ: เข้า PEAK UI → ผู้ติดต่อ → ลบ idCardNumber ทดสอบออก
+ */
+function probeContactIdCardUpdate() {
+  const TEST_INV_CODE = '1754102677';  // ← เปลี่ยนเป็นเลขสัญญาจริง
+
+  // ดึง contact จาก PEAK
+  const getRes   = callPeakAPI('get', '/contacts', null, { code: TEST_INV_CODE });
+  const contacts = getRes && getRes.PeakContacts && getRes.PeakContacts.contacts;
+  const c        = Array.isArray(contacts) ? contacts[0] : contacts;
+  if (!c) { Logger.log('❌ ไม่พบ contact — เปลี่ยน TEST_INV_CODE แล้วลองใหม่'); return; }
+
+  Logger.log(`Contact found: id=${c.id} name="${c.name}" type=${c.type}`);
+  Logger.log(`Current idCardNumber="${c.idCardNumber || ''}" address="${c.address || ''}"`);
+
+  const TEST_ID_CARD = '1234567890123';  // เลขทดสอบ (13 หลัก)
+  const TEST_ADDRESS = 'ที่อยู่ทดสอบ 99/9 กรุงเทพ';
+
+  const fullPayload = Object.assign({}, c, {
+    idCardNumber: TEST_ID_CARD,
+    address:      TEST_ADDRESS,
+  });
+  const minPayload = {
+    id:           c.id || c.contactId || c.Id,
+    code:         c.code,
+    name:         c.name,
+    type:         c.type,
+    idCardNumber: TEST_ID_CARD,
+    address:      TEST_ADDRESS,
+  };
+
+  const candidates = [
+    { label: 'PUT /contacts (full body)',         method: 'put',   path: '/contacts',              body: { PeakContacts: { contacts: [fullPayload] } } },
+    { label: 'PUT /contacts (min body)',          method: 'put',   path: '/contacts',              body: { PeakContacts: { contacts: [minPayload]  } } },
+    { label: `PUT /contacts/${c.id} (full)`,      method: 'put',   path: `/contacts/${c.id}`,      body: { PeakContacts: { contacts: [fullPayload] } } },
+    { label: `PUT /contacts/${c.id} (min)`,       method: 'put',   path: `/contacts/${c.id}`,      body: { PeakContacts: { contacts: [minPayload]  } } },
+    { label: `PATCH /contacts/${c.id}`,           method: 'patch', path: `/contacts/${c.id}`,      body: { PeakContacts: { contacts: [minPayload]  } } },
+    { label: 'POST /contacts/update (full)',       method: 'post',  path: '/contacts/update',       body: { PeakContacts: { contacts: [fullPayload] } } },
+  ];
+
+  Logger.log('\n─── เริ่ม probe ───');
+  for (const cand of candidates) {
+    try {
+      const url = CONFIG.BASE_URL + cand.path;
+      const res = UrlFetchApp.fetch(url, {
+        method:             cand.method,
+        headers:            buildHeaders(),
+        contentType:        'application/json',
+        payload:            JSON.stringify(cand.body),
+        muteHttpExceptions: true,
+      });
+      const httpCode = res.getResponseCode();
+      const bodySnip = res.getContentText().slice(0, 200);
+      const ok = httpCode === 200 ? '✅' : '❌';
+      Logger.log(`${ok} [HTTP ${httpCode}] ${cand.label}\n   ${bodySnip}`);
+    } catch (e) {
+      Logger.log(`❌ ERROR: ${cand.label} — ${e.message}`);
+    }
+    Utilities.sleep(400);
+  }
+
+  Logger.log('\n─── เสร็จ ───');
+  Logger.log('ขั้นตอนต่อไป:');
+  Logger.log('1. หา endpoint ที่ขึ้น ✅ HTTP 200');
+  Logger.log('2. เปิด PEAK UI → ผู้ติดต่อ → ค้น TEST_INV_CODE → ดูว่าเลขบัตร/ที่อยู่เปลี่ยนไหม');
+  Logger.log('3. แจ้งผล → ทีมจะแก้ runUpdateContactDetails ให้ใช้ endpoint ที่ถูก');
+  Logger.log('4. ลบ idCardNumber ทดสอบออกจาก PEAK UI');
+}
+
+/**
  * ทดสอบ _parseThaiName_ + POST contact จริงไปยัง PEAK สำหรับ prefix "อื่น ๆ"
  *
  * Phase 1 — parse เท่านั้น (ไม่เรียก API):
