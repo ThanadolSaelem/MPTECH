@@ -397,6 +397,23 @@ function runUpdateContactDetails(sheetName) {
   return summary;
 }
 
+// ─── Verify: GET contact หลัง update เพื่อเช็คว่า persist จริงไหม ──────────────
+function verifyUpdatedContacts() {
+  const TEST_CODES = ['1751793623', '1751792334', '1751975511', '1752150136'];
+  Logger.log('=== Verify contact updates ===');
+  for (const code of TEST_CODES) {
+    try {
+      const res = callPeakAPI('get', '/contacts', null, { code });
+      const c   = res && res.PeakContacts && res.PeakContacts.contacts;
+      const cc  = Array.isArray(c) ? c[0] : c;
+      if (!cc) { Logger.log(`[${code}] ไม่พบ`); continue; }
+      Logger.log(`[${code}] ${cc.name} | taxNumber:"${cc.taxNumber}" | address:"${cc.address && cc.address.slice(0, 40)}"`);
+    } catch (e) {
+      Logger.log(`[${code}] error: ${e.message}`);
+    }
+  }
+}
+
 // ─── Fix wrong-name contacts in PEAK ─────────────────────────────────────────
 /**
  * แก้ชื่อ contact ใน PEAK ที่มี prefix ซ้ำ (เช่น "นายนายธัชกร" → "นายธัชกร")
