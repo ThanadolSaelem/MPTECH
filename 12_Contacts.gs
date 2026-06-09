@@ -411,6 +411,56 @@ function verifyUpdatedContacts() {
   }
 }
 
+// ─── Probe: หา payload shape ที่ persist จริง ───────────────────────────────
+// PEAK คืน 200 success แต่ไม่ persist ใน contact ปกติ (แต่ persist ใน probe เทส)
+// ต้องหาว่าอะไรคือเงื่อนไขที่ทำให้ persist
+function debugPayloadVariations() {
+  const INV = '1751793623';
+  const getRes = callPeakAPI('get', '/contacts', null, { code: INV });
+  const c = getRes.PeakContacts.contacts[0];
+  Logger.log(`=== Initial: name="${c.name}" taxNumber="${c.taxNumber}" address="${c.address}" ===`);
+
+  const clean = Object.assign({}, c);
+  delete clean.resCode;
+  delete clean.resDesc;
+
+  const TEST_TAX  = '1111111111111';
+  const TEST_ADDR = 'ทดสอบ ADDR ' + Date.now();
+
+  const variants = [
+    { label: 'V1: Object.assign (current)', body: Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR }) },
+    { label: 'V2: + firstName/lastName parsed', body: (() => {
+        const parts = String(c.name || '').trim().split(/\s+/);
+        return Object.assign({}, clean, {
+          taxNumber: TEST_TAX, address: TEST_ADDR,
+          firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || '',
+        });
+      })() },
+    { label: 'V3: name + space (force change)', body: Object.assign({}, clean, { name: c.name + ' ', taxNumber: TEST_TAX, address: TEST_ADDR }) },
+    { label: 'V4: full + branchCode "00000"', body: Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR, branchCode: '00000' }) },
+  ];
+
+  for (const v of variants) {
+    Logger.log(`\n─── ${v.label} ───`);
+    try {
+      const res = callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: v.body } });
+      Logger.log(`Resp: ${JSON.stringify(res).slice(0, 200)}`);
+    } catch (e) {
+      Logger.log(`Err: ${e.message.slice(0, 200)}`);
+      continue;
+    }
+    Utilities.sleep(1500);
+    const verify = callPeakAPI('get', '/contacts', null, { code: INV });
+    const cc = verify.PeakContacts.contacts[0];
+    const taxOk  = cc.taxNumber === TEST_TAX;
+    const addrOk = cc.address === TEST_ADDR;
+    Logger.log(`After: taxNumber="${cc.taxNumber}" address="${cc.address}"  → tax:${taxOk?'✅':'❌'} addr:${addrOk?'✅':'❌'}`);
+    if (taxOk && addrOk) { Logger.log(`🎉 ${v.label} works`); return; }
+    Utilities.sleep(500);
+  }
+  Logger.log('\n❌ ไม่มี variant ใด persist');
+}
+
 // ─── Fix wrong-name contacts in PEAK ─────────────────────────────────────────
 /**
  * แก้ชื่อ contact ใน PEAK ที่มี prefix ซ้ำ (เช่น "นายนายธัชกร" → "นายธัชกร")
