@@ -479,6 +479,45 @@ function debugFindNameDuplicates() {
   Logger.log(`พบ ${found} record(s)`);
 }
 
+function debugMoreEndpoints() {
+  const INV = '1751793623';
+  const getRes = callPeakAPI('get', '/contacts', null, { code: INV });
+  const c = getRes.PeakContacts.contacts[0];
+  const TEST_TAX = '3333333333333';
+  const TEST_ADDR = 'ทดสอบ MORE ' + Date.now();
+  const clean = Object.assign({}, c); delete clean.resCode; delete clean.resDesc;
+  const edited = Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR });
+
+  const probes = [
+    { label: 'POST /contacts (create-as-upsert, full body)', method: 'post',  path: '/contacts',       body: { PeakContacts: { contacts: [edited] } } },
+    { label: 'POST /contacts/ (slash, full body)',           method: 'post',  path: '/contacts/',      body: { PeakContacts: { contacts: [edited] } } },
+    { label: 'PUT /contacts/edit (object)',                  method: 'put',   path: '/contacts/edit',  body: { PeakContacts: { contacts: edited } } },
+    { label: 'PATCH /contacts/edit (object)',                method: 'patch', path: '/contacts/edit',  body: { PeakContacts: { contacts: edited } } },
+    { label: 'POST /contacts/edit (array)',                  method: 'post',  path: '/contacts/edit',  body: { PeakContacts: { contacts: [edited] } } },
+    { label: 'POST /Contacts/edit (capital C)',              method: 'post',  path: '/Contacts/edit',  body: { PeakContacts: { contacts: edited } } },
+    { label: 'POST /contact/edit (singular)',                method: 'post',  path: '/contact/edit',   body: { PeakContacts: { contacts: edited } } },
+  ];
+  for (const p of probes) {
+    Logger.log(`\n=== ${p.label} ===`);
+    try {
+      const res = UrlFetchApp.fetch(CONFIG.BASE_URL + p.path, {
+        method: p.method, headers: buildHeaders(), contentType: 'application/json',
+        payload: JSON.stringify(p.body), muteHttpExceptions: true,
+      });
+      Logger.log(`HTTP ${res.getResponseCode()}: ${res.getContentText().slice(0, 220)}`);
+    } catch (e) { Logger.log(`Err: ${e.message}`); }
+    Utilities.sleep(1500);
+    const v = callPeakAPI('get', '/contacts', null, { code: INV });
+    const cc = v.PeakContacts.contacts[0];
+    if (cc.taxNumber === TEST_TAX || cc.address === TEST_ADDR) {
+      Logger.log(`🎉 PERSIST: ${p.label}`);
+      return;
+    }
+    Utilities.sleep(400);
+  }
+  Logger.log('\n❌ ไม่มี endpoint ที่ persist');
+}
+
 function debugTryIdInUrl() {
   const INV = '1751793623';
   const getRes = callPeakAPI('get', '/contacts', null, { code: INV });
