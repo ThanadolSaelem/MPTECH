@@ -667,6 +667,90 @@ function probeContactIdCardUpdate() {
 }
 
 /**
+ * Probe ตัวชี้ขาด — PUT แล้ว GET กลับมาเทียบทันทีว่าค่าเปลี่ยนฝั่ง server จริงไหม
+ *
+ * PUT /contacts ตอบ HTTP 200 แต่ค่าไม่เปลี่ยนใน PEAK UI → ต้องพิสูจน์ว่า
+ * PEAK บันทึกอะไรจริงหรือเปล่า ทดสอบ 3 รูปแบบ payload:
+ *   A. full body ตัด resCode/resDesc ออก  (echo ทุก field กลับ)
+ *   B. min body  (เฉพาะ field ที่จำเป็น)
+ *   C. เปลี่ยน "ชื่อ" อย่างเดียว           (control — name เป็น field ที่แก้ได้แน่)
+ *
+ * แต่ละรูปแบบ: PUT → log full response → GET ใหม่ → เทียบค่า before/after
+ * → สรุปว่า field ไหน persist จริง
+ */
+function probeUpdateVerify() {
+  const TEST_INV_CODE = '1754102677';
+  const STAMP = String(Date.now()).slice(-5);
+
+  const fetchContact_ = () => {
+    const r = callPeakAPI('get', '/contacts', null, { code: TEST_INV_CODE });
+    const cs = r && r.PeakContacts && r.PeakContacts.contacts;
+    return Array.isArray(cs) ? cs[0] : cs;
+  };
+
+  const putRaw_ = (body) => {
+    const res = UrlFetchApp.fetch(CONFIG.BASE_URL + '/contacts', {
+      method:             'put',
+      headers:            buildHeaders(),
+      contentType:        'application/json',
+      payload:            JSON.stringify(body),
+      muteHttpExceptions: true,
+    });
+    return { code: res.getResponseCode(), text: res.getContentText() };
+  };
+
+  const before = fetchContact_();
+  if (!before) { Logger.log('❌ ไม่พบ contact'); return; }
+  Logger.log(`เริ่มต้น: name="${before.name}" taxNumber="${before.taxNumber||''}" address="${before.address||''}"`);
+
+  // ตัด field ที่ไม่ควร echo กลับ
+  const clean = Object.assign({}, before);
+  delete clean.resCode;
+  delete clean.resDesc;
+
+  const TEST_TAX  = '1234567890123';
+  const TEST_ADDR = `ทดสอบที่อยู่ ${STAMP}`;
+  const TEST_NAME = `${before.name} [${STAMP}]`;
+
+  const variants = [
+    {
+      label: 'A. full body (ตัด resCode/resDesc) + taxNumber + address',
+      body:  { PeakContacts: { contacts: [Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR })] } },
+      check: (a) => ({ tax: a.taxNumber === TEST_TAX, addr: a.address === TEST_ADDR }),
+    },
+    {
+      label: 'B. min body (id/code/name/type) + taxNumber + address',
+      body:  { PeakContacts: { contacts: [{ id: before.id, code: before.code, name: before.name, type: before.type, taxNumber: TEST_TAX, address: TEST_ADDR }] } },
+      check: (a) => ({ tax: a.taxNumber === TEST_TAX, addr: a.address === TEST_ADDR }),
+    },
+    {
+      label: 'C. control — เปลี่ยนชื่ออย่างเดียว (full body)',
+      body:  { PeakContacts: { contacts: [Object.assign({}, clean, { name: TEST_NAME })] } },
+      check: (a) => ({ name: a.name === TEST_NAME }),
+    },
+  ];
+
+  for (const v of variants) {
+    Logger.log(`\n═══ ${v.label} ═══`);
+    const put = putRaw_(v.body);
+    Logger.log(`PUT → HTTP ${put.code}`);
+    Logger.log(`response: ${put.text || '(ว่างเปล่า)'}`);
+    Utilities.sleep(800);
+    const after = fetchContact_();
+    Logger.log(`after GET: name="${after.name}" taxNumber="${after.taxNumber||''}" address="${after.address||''}"`);
+    const result = v.check(after);
+    const verdict = Object.entries(result).map(([k, ok]) => `${k}:${ok ? '✅เปลี่ยนจริง' : '❌ไม่เปลี่ยน'}`).join('  ');
+    Logger.log(`>>> ${verdict}`);
+    Utilities.sleep(400);
+  }
+
+  Logger.log('\n─── สรุป ───');
+  Logger.log('ถ้า C (ชื่อ) ✅ แต่ A/B (taxNumber) ❌ → ปัญหาคือชื่อ field ผิด');
+  Logger.log('ถ้า C ❌ ด้วย → PUT /contacts ไม่ได้ใช้ update เลย ต้องหา endpoint อื่น');
+  Logger.log('อย่าลืม: คืนค่าชื่อเดิม + ลบ taxNumber/address ทดสอบใน PEAK UI');
+}
+
+/**
  * ทดสอบ _parseThaiName_ + POST contact จริงไปยัง PEAK สำหรับ prefix "อื่น ๆ"
  *
  * Phase 1 — parse เท่านั้น (ไม่เรียก API):
