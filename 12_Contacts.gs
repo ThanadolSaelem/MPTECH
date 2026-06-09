@@ -360,26 +360,18 @@ function runUpdateContactDetails(sheetName) {
       const needUpdate = (idCard && !c.taxNumber) || (address && !c.address);
       if (!needUpdate) { countSkip++; continue; }
 
-      // ต้องส่ง full object กลับ — minimal payload คืน HTTP 200 แต่ไม่ persist
-      const payload = Object.assign({}, c, {
+      // ส่งเฉพาะ field ที่จำเป็น — หลีก "Contact name is duplicated" จาก PEAK
+      const payload = {
+        id:   c.id,
+        code: c.code,
+        type: c.type,
+        name: c.name,
         ...(idCard  ? { taxNumber: idCard  } : {}),
         ...(address ? { address:   address } : {}),
-      });
-      delete payload.resCode;
-      delete payload.resDesc;
-      try {
-        callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
-        Logger.log(`Updated [${invCode}]: idCard=${idCard ? '✓' : '-'} address=${address ? '✓' : '-'}`);
-        countOk++;
-      } catch (editErr) {
-        const msg = String(editErr.message || '');
-        if (/100.*duplic|duplic.*100/i.test(msg) || /Contact name is duplicated/i.test(msg)) {
-          Logger.log(`ข้ามซ้ำ [${invCode}]: ชื่อ "${c.name}" ซ้ำใน PEAK — แก้ใน UI ก่อน`);
-          countSkip++;
-        } else {
-          throw editErr;
-        }
-      }
+      };
+      callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
+      Logger.log(`Updated [${invCode}]: idCard=${idCard ? '✓' : '-'} address=${address ? '✓' : '-'}`);
+      countOk++;
     } catch (e) {
       Logger.log(`UpdateDetails failed [${invCode}]: ${e.message}`);
       countError++;
@@ -394,74 +386,32 @@ function runUpdateContactDetails(sheetName) {
   return summary;
 }
 
-// ─── Verify: GET contact หลัง update เพื่อเช็คว่า persist จริงไหม ──────────────
-function verifyUpdatedContacts() {
-  const TEST_CODES = ['1751793623', '1751792334', '1751975511', '1752150136'];
-  Logger.log('=== Verify contact updates ===');
-  for (const code of TEST_CODES) {
-    try {
-      const res = callPeakAPI('get', '/contacts', null, { code });
-      const c   = res && res.PeakContacts && res.PeakContacts.contacts;
-      const cc  = Array.isArray(c) ? c[0] : c;
-      if (!cc) { Logger.log(`[${code}] ไม่พบ`); continue; }
-      Logger.log(`[${code}] ${cc.name} | taxNumber:"${cc.taxNumber}" | address:"${cc.address && cc.address.slice(0, 40)}"`);
-    } catch (e) {
-      Logger.log(`[${code}] error: ${e.message}`);
-    }
-  }
-}
-
-// ─── Probe: หา payload shape ที่ persist จริง ───────────────────────────────
-// PEAK คืน 200 success แต่ไม่ persist ใน contact ปกติ (แต่ persist ใน probe เทส)
-// ต้องหาว่าอะไรคือเงื่อนไขที่ทำให้ persist
-function debugPayloadVariations() {
-  const INV = '1751793623';
-  const getRes = callPeakAPI('get', '/contacts', null, { code: INV });
-  const c = getRes.PeakContacts.contacts[0];
-  Logger.log(`=== Initial: name="${c.name}" taxNumber="${c.taxNumber}" address="${c.address}" ===`);
-
-  const clean = Object.assign({}, c);
-  delete clean.resCode;
-  delete clean.resDesc;
-
-  const TEST_TAX  = '1111111111111';
-  const TEST_ADDR = 'ทดสอบ ADDR ' + Date.now();
-
-  const variants = [
-    { label: 'V1: Object.assign (current)', body: Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR }) },
-    { label: 'V2: + firstName/lastName parsed', body: (() => {
-        const parts = String(c.name || '').trim().split(/\s+/);
-        return Object.assign({}, clean, {
-          taxNumber: TEST_TAX, address: TEST_ADDR,
-          firstName: parts[0] || '', lastName: parts.slice(1).join(' ') || '',
-        });
-      })() },
-    { label: 'V3: name + space (force change)', body: Object.assign({}, clean, { name: c.name + ' ', taxNumber: TEST_TAX, address: TEST_ADDR }) },
-    { label: 'V4: full + branchCode "00000"', body: Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR, branchCode: '00000' }) },
-  ];
-
-  for (const v of variants) {
-    Logger.log(`\n─── ${v.label} ───`);
-    try {
-      const res = callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: v.body } });
-      Logger.log(`Resp: ${JSON.stringify(res).slice(0, 200)}`);
-    } catch (e) {
-      Logger.log(`Err: ${e.message.slice(0, 200)}`);
-      continue;
-    }
-    Utilities.sleep(1500);
-    const verify = callPeakAPI('get', '/contacts', null, { code: INV });
-    const cc = verify.PeakContacts.contacts[0];
-    const taxOk  = cc.taxNumber === TEST_TAX;
-    const addrOk = cc.address === TEST_ADDR;
-    Logger.log(`After: taxNumber="${cc.taxNumber}" address="${cc.address}"  → tax:${taxOk?'✅':'❌'} addr:${addrOk?'✅':'❌'}`);
-    if (taxOk && addrOk) { Logger.log(`🎉 ${v.label} works`); return; }
-    Utilities.sleep(500);
-  }
-  Logger.log('\n❌ ไม่มี variant ใด persist');
-}
-
 // ─── Fix wrong-name contacts in PEAK ─────────────────────────────────────────
+
+function debugUpdateOneContact() {
+  const INV_CODE = '1761985715';
+  const ID_CARD  = '?';  // ← ใส่เลขบัตรจริงจาก Sheet ตรงนี้
+
+  const getRes   = callPeakAPI('get', '/contacts', null, { code: INV_CODE });
+  const contacts = getRes && getRes.PeakContacts && getRes.PeakContacts.contacts;
+  const c        = Array.isArray(contacts) ? contacts[0] : contacts;
+  Logger.log('GET taxNumber before: "' + (c && c.taxNumber) + '"');
+  Logger.log('ID_CARD ที่จะส่ง: "' + ID_CARD + '" (length=' + ID_CARD.length + ')');
+
+  const payload = { id: c.id, code: c.code, type: c.type, name: c.name, taxNumber: ID_CARD };
+  Logger.log('Payload taxNumber: "' + payload.taxNumber + '"');
+
+  const editRes = callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
+  Logger.log('POST /contacts/edit response: ' + JSON.stringify(editRes).slice(0, 300));
+
+  // GET อีกครั้งเพื่อยืนยัน
+  Utilities.sleep(1000);
+  const getRes2 = callPeakAPI('get', '/contacts', null, { code: INV_CODE });
+  const c2 = getRes2 && getRes2.PeakContacts && getRes2.PeakContacts.contacts;
+  const cc = Array.isArray(c2) ? c2[0] : c2;
+  Logger.log('GET taxNumber after: "' + (cc && cc.taxNumber) + '"');
+}
+
 /**
  * แก้ชื่อ contact ใน PEAK ที่มี prefix ซ้ำ (เช่น "นายนายธัชกร" → "นายธัชกร")
  *
