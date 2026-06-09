@@ -363,15 +363,16 @@ function runUpdateContactDetails(sheetName) {
       const needUpdate = (idCard && !c.taxNumber) || (address && !c.address);
       if (!needUpdate) { countSkip++; continue; }
 
-      // POST /contacts ทำหน้าที่ upsert: code เดิม → update record นั้น
-      // (POST /contacts/edit ติด "Contact name is duplicated" false positive)
-      const payload = Object.assign({}, c, {
+      // ส่งเฉพาะ field ที่จำเป็น — หลีก "Contact name is duplicated" จาก PEAK
+      const payload = {
+        id:   c.id,
+        code: c.code,
+        type: c.type,
+        name: c.name,
         ...(idCard  ? { taxNumber: idCard  } : {}),
         ...(address ? { address:   address } : {}),
-      });
-      delete payload.resCode;
-      delete payload.resDesc;
-      callPeakAPI('post', '/contacts', { PeakContacts: { contacts: [payload] } });
+      };
+      callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
       Logger.log(`Updated [${invCode}]: idCard=${idCard ? '✓' : '-'} address=${address ? '✓' : '-'}`);
       countOk++;
     } catch (e) {
@@ -388,167 +389,32 @@ function runUpdateContactDetails(sheetName) {
   return summary;
 }
 
-// ─── Verify: GET contact หลัง update เพื่อเช็คว่า persist จริงไหม ──────────────
-function verifyUpdatedContacts() {
-  const TEST_CODES = ['1751793623', '1751792334', '1751975511', '1752150136'];
-  Logger.log('=== Verify contact updates ===');
-  for (const code of TEST_CODES) {
-    try {
-      const res = callPeakAPI('get', '/contacts', null, { code });
-      const c   = res && res.PeakContacts && res.PeakContacts.contacts;
-      const cc  = Array.isArray(c) ? c[0] : c;
-      if (!cc) { Logger.log(`[${code}] ไม่พบ`); continue; }
-      Logger.log(`[${code}] ${cc.name} | taxNumber:"${cc.taxNumber}" | address:"${cc.address && cc.address.slice(0, 40)}"`);
-    } catch (e) {
-      Logger.log(`[${code}] error: ${e.message}`);
-    }
-  }
-}
-
-// ─── Probe: หา payload shape ที่ persist จริง ───────────────────────────────
-// PEAK คืน 200 success แต่ไม่ persist ใน contact ปกติ (แต่ persist ใน probe เทส)
-// ต้องหาว่าอะไรคือเงื่อนไขที่ทำให้ persist
-function debugPayloadVariations() {
-  const INV = '1751793623';
-  const getRes = callPeakAPI('get', '/contacts', null, { code: INV });
-  const c = getRes.PeakContacts.contacts[0];
-  Logger.log(`=== Initial: name="${c.name}" taxNumber="${c.taxNumber}" address="${c.address}" ===`);
-
-  const clean = Object.assign({}, c);
-  delete clean.resCode;
-  delete clean.resDesc;
-
-  const TEST_TAX  = '1111111111111';
-  const TEST_ADDR = 'ทดสอบ ADDR ' + Date.now();
-
-  const stripName = (obj) => { const o = Object.assign({}, obj); delete o.name; return o; };
-  const variants = [
-    { label: 'V5: omit name field entirely', body: stripName(Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR })) },
-    { label: 'V6: minimal w/o name (id+code+type+tax+addr)', body: { id: c.id, code: c.code, type: c.type, taxNumber: TEST_TAX, address: TEST_ADDR } },
-    { label: 'V7: append code to name (unique)', body: Object.assign({}, clean, { name: c.name + ' #' + c.code, taxNumber: TEST_TAX, address: TEST_ADDR }) },
-    { label: 'V8: full + isVatRegistered:false', body: Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR, isVatRegistered: false }) },
-  ];
-
-  for (const v of variants) {
-    Logger.log(`\n─── ${v.label} ───`);
-    try {
-      const res = callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: v.body } });
-      Logger.log(`Resp: ${JSON.stringify(res).slice(0, 200)}`);
-    } catch (e) {
-      Logger.log(`Err: ${e.message.slice(0, 200)}`);
-      continue;
-    }
-    Utilities.sleep(1500);
-    const verify = callPeakAPI('get', '/contacts', null, { code: INV });
-    const cc = verify.PeakContacts.contacts[0];
-    const taxOk  = cc.taxNumber === TEST_TAX;
-    const addrOk = cc.address === TEST_ADDR;
-    Logger.log(`After: taxNumber="${cc.taxNumber}" address="${cc.address}"  → tax:${taxOk?'✅':'❌'} addr:${addrOk?'✅':'❌'}`);
-    if (taxOk && addrOk) { Logger.log(`🎉 ${v.label} works`); return; }
-    Utilities.sleep(500);
-  }
-  Logger.log('\n❌ ไม่มี variant ใด persist');
-}
-
-// ─── ค้นหา duplicate name ใน PEAK + ทดสอบ id-in-URL pattern ──────────────────
-function debugFindNameDuplicates() {
-  const SEARCH_NAME = 'จิระศักดิ์ พันว่าภักดิ์';
-  Logger.log(`=== ค้นหา contact ที่ชื่อมี "${SEARCH_NAME}" ===`);
-  let found = 0;
-  for (let p = 1; p <= 30; p++) {
-    let r;
-    try {
-      r = callPeakAPI('get', '/contacts', null, { page: p });
-    } catch (e) { Logger.log(`page ${p} err: ${e.message}`); break; }
-    const contacts = (r && r.PeakContacts && r.PeakContacts.contacts) || [];
-    if (!contacts.length) break;
-    for (const c of contacts) {
-      if (c.name && c.name.includes('จิระศักดิ์')) {
-        Logger.log(`[p${p}] code=${c.code} id=${c.id} name="${c.name}" tax="${c.taxNumber||''}"`);
-        found++;
-      }
-    }
-    Utilities.sleep(200);
-  }
-  Logger.log(`พบ ${found} record(s)`);
-}
-
-function debugMoreEndpoints() {
-  const INV = '1751793623';
-  const getRes = callPeakAPI('get', '/contacts', null, { code: INV });
-  const c = getRes.PeakContacts.contacts[0];
-  const TEST_TAX = '3333333333333';
-  const TEST_ADDR = 'ทดสอบ MORE ' + Date.now();
-  const clean = Object.assign({}, c); delete clean.resCode; delete clean.resDesc;
-  const edited = Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR });
-
-  const probes = [
-    { label: 'POST /contacts (create-as-upsert, full body)', method: 'post',  path: '/contacts',       body: { PeakContacts: { contacts: [edited] } } },
-    { label: 'POST /contacts/ (slash, full body)',           method: 'post',  path: '/contacts/',      body: { PeakContacts: { contacts: [edited] } } },
-    { label: 'PUT /contacts/edit (object)',                  method: 'put',   path: '/contacts/edit',  body: { PeakContacts: { contacts: edited } } },
-    { label: 'PATCH /contacts/edit (object)',                method: 'patch', path: '/contacts/edit',  body: { PeakContacts: { contacts: edited } } },
-    { label: 'POST /contacts/edit (array)',                  method: 'post',  path: '/contacts/edit',  body: { PeakContacts: { contacts: [edited] } } },
-    { label: 'POST /Contacts/edit (capital C)',              method: 'post',  path: '/Contacts/edit',  body: { PeakContacts: { contacts: edited } } },
-    { label: 'POST /contact/edit (singular)',                method: 'post',  path: '/contact/edit',   body: { PeakContacts: { contacts: edited } } },
-  ];
-  for (const p of probes) {
-    Logger.log(`\n=== ${p.label} ===`);
-    try {
-      const res = UrlFetchApp.fetch(CONFIG.BASE_URL + p.path, {
-        method: p.method, headers: buildHeaders(), contentType: 'application/json',
-        payload: JSON.stringify(p.body), muteHttpExceptions: true,
-      });
-      Logger.log(`HTTP ${res.getResponseCode()}: ${res.getContentText().slice(0, 220)}`);
-    } catch (e) { Logger.log(`Err: ${e.message}`); }
-    Utilities.sleep(1500);
-    const v = callPeakAPI('get', '/contacts', null, { code: INV });
-    const cc = v.PeakContacts.contacts[0];
-    if (cc.taxNumber === TEST_TAX || cc.address === TEST_ADDR) {
-      Logger.log(`🎉 PERSIST: ${p.label}`);
-      return;
-    }
-    Utilities.sleep(400);
-  }
-  Logger.log('\n❌ ไม่มี endpoint ที่ persist');
-}
-
-function debugTryIdInUrl() {
-  const INV = '1751793623';
-  const getRes = callPeakAPI('get', '/contacts', null, { code: INV });
-  const c = getRes.PeakContacts.contacts[0];
-  Logger.log(`=== id=${c.id} code=${c.code} name="${c.name}" ===`);
-
-  const TEST_TAX = '2222222222222';
-  const TEST_ADDR = 'ทดสอบ ID-URL ' + Date.now();
-  const clean = Object.assign({}, c); delete clean.resCode; delete clean.resDesc;
-  const edited = Object.assign({}, clean, { taxNumber: TEST_TAX, address: TEST_ADDR });
-
-  const probes = [
-    { method: 'post',  path: `/contacts/${c.id}/edit`,    body: { PeakContacts: { contacts: edited } } },
-    { method: 'put',   path: `/contacts/${c.id}`,         body: { PeakContacts: { contacts: edited } } },
-    { method: 'patch', path: `/contacts/${c.id}`,         body: { PeakContacts: { contacts: edited } } },
-    { method: 'post',  path: `/contacts/edit/${c.id}`,    body: { PeakContacts: { contacts: edited } } },
-    { method: 'post',  path: `/contacts/${c.code}/edit`,  body: { PeakContacts: { contacts: edited } } },
-  ];
-  for (const p of probes) {
-    Logger.log(`\n--- ${p.method.toUpperCase()} ${p.path} ---`);
-    try {
-      const res = UrlFetchApp.fetch(CONFIG.BASE_URL + p.path, {
-        method: p.method, headers: buildHeaders(), contentType: 'application/json',
-        payload: JSON.stringify(p.body), muteHttpExceptions: true,
-      });
-      Logger.log(`HTTP ${res.getResponseCode()}: ${res.getContentText().slice(0, 200)}`);
-    } catch (e) { Logger.log(`Err: ${e.message}`); }
-    Utilities.sleep(500);
-  }
-  Utilities.sleep(1000);
-  const verify = callPeakAPI('get', '/contacts', null, { code: INV });
-  const cc = verify.PeakContacts.contacts[0];
-  Logger.log(`\nAfter: taxNumber="${cc.taxNumber}" address="${cc.address}"`);
-  if (cc.taxNumber === TEST_TAX) Logger.log('🎉 มี endpoint ที่ persist');
-}
-
 // ─── Fix wrong-name contacts in PEAK ─────────────────────────────────────────
+
+function debugUpdateOneContact() {
+  const INV_CODE = '1761985715';
+  const ID_CARD  = '?';  // ← ใส่เลขบัตรจริงจาก Sheet ตรงนี้
+
+  const getRes   = callPeakAPI('get', '/contacts', null, { code: INV_CODE });
+  const contacts = getRes && getRes.PeakContacts && getRes.PeakContacts.contacts;
+  const c        = Array.isArray(contacts) ? contacts[0] : contacts;
+  Logger.log('GET taxNumber before: "' + (c && c.taxNumber) + '"');
+  Logger.log('ID_CARD ที่จะส่ง: "' + ID_CARD + '" (length=' + ID_CARD.length + ')');
+
+  const payload = { id: c.id, code: c.code, type: c.type, name: c.name, taxNumber: ID_CARD };
+  Logger.log('Payload taxNumber: "' + payload.taxNumber + '"');
+
+  const editRes = callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
+  Logger.log('POST /contacts/edit response: ' + JSON.stringify(editRes).slice(0, 300));
+
+  // GET อีกครั้งเพื่อยืนยัน
+  Utilities.sleep(1000);
+  const getRes2 = callPeakAPI('get', '/contacts', null, { code: INV_CODE });
+  const c2 = getRes2 && getRes2.PeakContacts && getRes2.PeakContacts.contacts;
+  const cc = Array.isArray(c2) ? c2[0] : c2;
+  Logger.log('GET taxNumber after: "' + (cc && cc.taxNumber) + '"');
+}
+
 /**
  * แก้ชื่อ contact ใน PEAK ที่มี prefix ซ้ำ (เช่น "นายนายธัชกร" → "นายธัชกร")
  *
