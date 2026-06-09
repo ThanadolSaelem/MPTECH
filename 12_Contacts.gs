@@ -360,16 +360,29 @@ function runUpdateContactDetails(sheetName) {
       const needUpdate = (idCard && !c.taxNumber) || (address && !c.address);
       if (!needUpdate) { countSkip++; continue; }
 
-      const payload = Object.assign({}, c, {
-        ...(idCard  ? { taxNumber: idCard   } : {}),
+      // ส่งเฉพาะ field ที่จำเป็น — หลีก "Contact name is duplicated" ของ PEAK
+      const payload = {
+        id:   c.id,
+        code: c.code,
+        type: c.type,
+        name: c.name,
+        ...(idCard  ? { taxNumber: idCard  } : {}),
         ...(address ? { address:   address } : {}),
-      });
-      delete payload.resCode;
-      delete payload.resDesc;
-      // PEAK edit endpoint: POST /contacts/edit + contacts เป็น object เดี่ยว (ไม่ใช่ array)
-      callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
-      Logger.log(`Updated [${invCode}]: idCard=${idCard ? '✓' : '-'} address=${address ? '✓' : '-'}`);
-      countOk++;
+      };
+      try {
+        callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
+        Logger.log(`Updated [${invCode}]: idCard=${idCard ? '✓' : '-'} address=${address ? '✓' : '-'}`);
+        countOk++;
+      } catch (editErr) {
+        const msg = String(editErr.message || '');
+        if (/100.*duplic|duplic.*100/i.test(msg) || /Contact name is duplicated/i.test(msg)) {
+          // ชื่อซ้ำใน PEAK — ต้องแก้ผ่าน PEAK UI (merge/ลบ contact ซ้ำ)
+          Logger.log(`ข้ามซ้ำ [${invCode}]: ชื่อ "${c.name}" ซ้ำใน PEAK — แก้ใน UI ก่อน`);
+          countSkip++;
+        } else {
+          throw editErr;  // re-throw ให้ outer catch จัดการ
+        }
+      }
     } catch (e) {
       Logger.log(`UpdateDetails failed [${invCode}]: ${e.message}`);
       countError++;
@@ -385,33 +398,6 @@ function runUpdateContactDetails(sheetName) {
 }
 
 // ─── Fix wrong-name contacts in PEAK ─────────────────────────────────────────
-
-function debugUpdateOneContact() {
-  const INV_CODE = '1761985715';
-  const ID_CARD  = '?';  // ← ใส่เลขบัตรจริงจาก Sheet ตรงนี้
-
-  const getRes   = callPeakAPI('get', '/contacts', null, { code: INV_CODE });
-  const contacts = getRes && getRes.PeakContacts && getRes.PeakContacts.contacts;
-  const c        = Array.isArray(contacts) ? contacts[0] : contacts;
-  Logger.log('GET taxNumber before: "' + (c && c.taxNumber) + '"');
-  Logger.log('ID_CARD ที่จะส่ง: "' + ID_CARD + '" (length=' + ID_CARD.length + ')');
-
-  const payload = Object.assign({}, c, { taxNumber: ID_CARD });
-  delete payload.resCode;
-  delete payload.resDesc;
-  Logger.log('Payload taxNumber: "' + payload.taxNumber + '"');
-
-  const editRes = callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
-  Logger.log('POST /contacts/edit response: ' + JSON.stringify(editRes).slice(0, 300));
-
-  // GET อีกครั้งเพื่อยืนยัน
-  Utilities.sleep(1000);
-  const getRes2 = callPeakAPI('get', '/contacts', null, { code: INV_CODE });
-  const c2 = getRes2 && getRes2.PeakContacts && getRes2.PeakContacts.contacts;
-  const cc = Array.isArray(c2) ? c2[0] : c2;
-  Logger.log('GET taxNumber after: "' + (cc && cc.taxNumber) + '"');
-}
-
 /**
  * แก้ชื่อ contact ใน PEAK ที่มี prefix ซ้ำ (เช่น "นายนายธัชกร" → "นายธัชกร")
  *

@@ -158,9 +158,10 @@ function callPeakAPI(method, path, payload, params) {
   const topKey = data && Object.keys(data)[0];
   if (topKey && data[topKey]) {
     const inner = data[topKey];
-    const firstItem = Array.isArray(inner.receipts)   ? inner.receipts[0]
-                    : Array.isArray(inner.invoices)   ? inner.invoices[0]
+    const firstItem = Array.isArray(inner.receipts)    ? inner.receipts[0]
+                    : Array.isArray(inner.invoices)    ? inner.invoices[0]
                     : Array.isArray(inner.creditNotes) ? inner.creditNotes[0]
+                    : Array.isArray(inner.contacts)    ? inner.contacts[0]
                     : null;
     const resCode = (firstItem && firstItem.resCode) || inner.resCode;
     if (resCode && String(resCode) !== '200') {
