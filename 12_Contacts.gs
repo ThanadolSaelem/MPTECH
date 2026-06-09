@@ -360,26 +360,17 @@ function runUpdateContactDetails(sheetName) {
       const needUpdate = (idCard && !c.taxNumber) || (address && !c.address);
       if (!needUpdate) { countSkip++; continue; }
 
-      // ต้องส่ง full object กลับ — minimal payload คืน HTTP 200 แต่ไม่ persist
+      // POST /contacts ทำหน้าที่ upsert: code เดิม → update record นั้น
+      // (POST /contacts/edit ติด "Contact name is duplicated" false positive)
       const payload = Object.assign({}, c, {
         ...(idCard  ? { taxNumber: idCard  } : {}),
         ...(address ? { address:   address } : {}),
       });
       delete payload.resCode;
       delete payload.resDesc;
-      try {
-        callPeakAPI('post', '/contacts/edit', { PeakContacts: { contacts: payload } });
-        Logger.log(`Updated [${invCode}]: idCard=${idCard ? '✓' : '-'} address=${address ? '✓' : '-'}`);
-        countOk++;
-      } catch (editErr) {
-        const msg = String(editErr.message || '');
-        if (/100.*duplic|duplic.*100/i.test(msg) || /Contact name is duplicated/i.test(msg)) {
-          Logger.log(`ข้ามซ้ำ [${invCode}]: ชื่อ "${c.name}" ซ้ำใน PEAK — แก้ใน UI ก่อน`);
-          countSkip++;
-        } else {
-          throw editErr;
-        }
-      }
+      callPeakAPI('post', '/contacts', { PeakContacts: { contacts: [payload] } });
+      Logger.log(`Updated [${invCode}]: idCard=${idCard ? '✓' : '-'} address=${address ? '✓' : '-'}`);
+      countOk++;
     } catch (e) {
       Logger.log(`UpdateDetails failed [${invCode}]: ${e.message}`);
       countError++;
