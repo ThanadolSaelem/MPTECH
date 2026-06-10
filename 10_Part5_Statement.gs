@@ -35,11 +35,12 @@ function runPart5_StatementMatch(statementSheetName, receiptSheetName) {
   const stmtData = allStmt.slice(fmt.headerRow);
 
   const receiptData = getReceiptData_(receiptSheet);
+  const rc = detectReceiptColumns_(receiptSheet);
 
   // ─── Build INV lookup from Receipt sheet ──────────────────────────────────
   const recMap = {};
   for (let i = 0; i < receiptData.length; i++) {
-    const inv = normalizeInv_(String(receiptData[i][CONFIG.RECEIPT_COL.INV] || '').trim());
+    const inv = normalizeInv_(String(receiptData[i][rc.INV] || '').trim());
     if (!inv) continue;
     if (!recMap[inv]) recMap[inv] = [];
     recMap[inv].push({ idx: i, row: receiptData[i] });
@@ -84,8 +85,8 @@ function runPart5_StatementMatch(statementSheetName, receiptSheetName) {
 
     let best = null, bestScore = -1;
     for (const m of matches) {
-      const recAmt  = parseAmount(m.row[CONFIG.RECEIPT_COL.AMT]);
-      const recDate = formatDateForAPI(m.row[CONFIG.RECEIPT_COL.PAY_DATE]);
+      const recAmt  = parseAmount(m.row[rc.AMT]);
+      const recDate = formatDateForAPI(m.row[rc.PAY_DATE]);
       let score = 0;
       if (Math.abs(recAmt - deposit) < 1)        score += 2;
       else if (Math.abs(recAmt - deposit) < 100) score += 1;

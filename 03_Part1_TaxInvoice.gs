@@ -25,7 +25,9 @@ function runPart1_TaxInvoice(sheetName) {
   const sheet = getSheetByNameSmart_(ss, sheetName);
   if (!sheet) throw new Error(`ไม่พบ Sheet "${sheetName}"`);
 
-  ensureReceiptHeader_(sheet);
+  // ตำแหน่งคอลัมน์ตาม header จริง — layout RE04+ ต่างจาก config เดิม
+  const RC = detectReceiptColumns_(sheet);
+  ensureReceiptHeader_(sheet, RC);
   const data = getReceiptData_(sheet);
 
   toast(`⏳ Part 1 — ${sheetName}`, 'FinFin');
@@ -47,43 +49,48 @@ function runPart1_TaxInvoice(sheetName) {
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
 
-    const invCode = String(row[CONFIG.RECEIPT_COL.INV] || '').trim();
+    const invCode = String(row[RC.INV] || '').trim();
     if (!invCode) continue;
-    nameMap[invCode] = nameMap[invCode] || String(row[CONFIG.RECEIPT_COL.NAME] || '').trim();
+    nameMap[invCode] = nameMap[invCode] || String(row[RC.NAME] || '').trim();
 
-    const amt = parseAmount(row[CONFIG.RECEIPT_COL.AMT]);
+    const amt = parseAmount(row[RC.AMT]);
     if (amt <= 0) { countSkip++; continue; }
 
-    const existingDoc = String(row[CONFIG.RECEIPT_COL.PEAK_DOC] || '').trim();
+    const existingDoc = String(row[RC.PEAK_DOC] || '').trim();
     if (existingDoc && existingDoc !== CONFIG.PROCESSING_MARKER) { countSkip++; continue; }
 
     // smemove IFF- = ใบเสร็จค่าปรับ → Part 1 ไม่ออก ให้ Part 3 จัดการ
-    const smemoveDoc = String(row[CONFIG.RECEIPT_COL.SMEMOVE_DOC] || '').trim();
+    const smemoveDoc = String(row[RC.SMEMOVE_DOC] || '').trim();
     if (smemoveDoc.startsWith('IFF-')) { countSkip++; continue; }
 
-    const payDate = toDate(row[CONFIG.RECEIPT_COL.PAY_DATE]);
+    const payDate = toDate(row[RC.PAY_DATE]);
     if (!payDate) {
-      logEntry('Part1', sheetName, i, invCode, 'SKIP', '', 'ไม่มี PAY_DATE');
+      // รวมเคส "ค้างชำระ" — ห้ามออกใบเสร็จเด็ดขาด (เงินยังไม่เข้า)
+      logEntry('Part1', sheetName, i, invCode, 'SKIP', '', 'ไม่มี PAY_DATE / ค้างชำระ');
       countSkip++;
       continue;
     }
 
-    const dueDate = toDate(row[CONFIG.RECEIPT_COL.DUE_DATE]);
-    const installment = String(row[CONFIG.RECEIPT_COL.INST_TYPE] || '').trim();
+    const dueDate = toDate(row[RC.DUE_DATE]);
+    // layout RE04+ ไม่มีคอลัมน์ประเภทการชำระ → ใช้เดือนครบกำหนดเป็น label
+    // กัน reference ชนกันข้ามเดือนของสัญญาเดียวกัน
+    const installment = RC.INST_TYPE >= 0 ? String(row[RC.INST_TYPE] || '').trim() : '';
+    const refLabel = installment
+      || (dueDate ? Utilities.formatDate(dueDate, 'Asia/Bangkok', 'MM.yyyy') : 'X');
     const desc = buildReceiptDescription_(installment, invCode);
 
-    writeReceiptCell_(sheet, i, CONFIG.RECEIPT_COL.PEAK_DOC, CONFIG.PROCESSING_MARKER);
+    writeReceiptCell_(sheet, i, RC.PEAK_DOC, CONFIG.PROCESSING_MARKER);
 
     // ใช้เลขที่ smemove (IVF-YYMMDD-NNN) เป็น code ใน PEAK เพื่อ reconcile ได้ตรง
     const smemoveTaxRef = smemoveDoc.startsWith('IVF-') ? smemoveDoc : null;
 
     if (dueDate && compareDates(payDate, dueDate) < 0) {
-      const ref = smemoveTaxRef || buildReference(invCode, installment || 'X', 'TAX');
+      const ref = smemoveTaxRef || buildReference(invCode, refLabel, 'TAX');
       rawA.push({ rowIndex: i, invCode, payDate, amt, desc, ref });
     } else {
       const taxDate = dueDate || payDate;
-      const refTax = smemoveTaxRef || buildReference(invCode, installment || 'X', 'TAX');
-      const refRec = buildReference(invCode, installment || 'X', 'REC');
+      const refTax = smemoveTaxRef || buildReference(invCode, refLabel, 'TAX');
+      const refRec = buildReference(invCode, refLabel, 'REC');
       rawBtax.push({ rowIndex: i, invCode, taxDate, amt, desc, ref: refTax });
       rawBrec.push({ rowIndex: i, invCode, payDate, amt, desc, ref: refRec });
     }
@@ -122,7 +129,7 @@ function runPart1_TaxInvoice(sheetName) {
     if (timeUp()) { stoppedEarly = true; break; }
     const contactUuid = contactUuidCache[item.invCode] || getContactId_(item.invCode);
     if (!contactUuid) {
-      writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
+      writeReceiptCell_(sheet, item.rowIndex, RC.PEAK_DOC, '');
       logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'SKIP', '', 'ไม่พบ contactId — รัน Sync Contacts ก่อน');
       countSkip++;
       continue;
@@ -130,7 +137,7 @@ function runPart1_TaxInvoice(sheetName) {
     contactUuidCache[item.invCode] = contactUuid;
     const pmtInfo = pmtMap[CONFIG.PMT_TRANSFER] || pmtMap[CONFIG.PMT_CASH];
     if (!pmtInfo) {
-      writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
+      writeReceiptCell_(sheet, item.rowIndex, RC.PEAK_DOC, '');
       logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'SKIP', '', 'ไม่พบ payment method ใน PEAK — ตั้งค่า "โอนเงิน" ใน PEAK ก่อน');
       countSkip++;
       continue;
@@ -148,11 +155,11 @@ function runPart1_TaxInvoice(sheetName) {
       if (timeUp()) { stoppedEarly = true; break; }
       const contactUuid = contactUuidCache[item.invCode] || getContactId_(item.invCode);
       if (!contactUuid) {
-        writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
+        writeReceiptCell_(sheet, item.rowIndex, RC.PEAK_DOC, '');
         logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'SKIP', '', 'ไม่พบ contactId — รัน Sync Contacts ก่อน');
         countSkip++;
         const recItem = rawBrec.find(r => r.rowIndex === item.rowIndex);
-        if (recItem) writeReceiptCell_(sheet, recItem.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
+        if (recItem) writeReceiptCell_(sheet, recItem.rowIndex, RC.PEAK_DOC, '');
         continue;
       }
       contactUuidCache[item.invCode] = contactUuid;
@@ -172,7 +179,7 @@ function runPart1_TaxInvoice(sheetName) {
       const res = callPeakAPI('post', '/receipts/allinone', { PeakReceipts: { receipts: [item.payload] } });
       const rec = (res.PeakReceipts && res.PeakReceipts.receipts && res.PeakReceipts.receipts[0]) || res;
       const docNo = [rec.taxInvoiceCode || rec.code, rec.receiptCode].filter(Boolean).join(' / ') || JSON.stringify(res).slice(0, 80);
-      writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, docNo);
+      writeReceiptCell_(sheet, item.rowIndex, RC.PEAK_DOC, docNo);
       logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'SUCCESS', docNo, 'Case A');
       countA++;
     } catch (e) {
@@ -181,24 +188,24 @@ function runPart1_TaxInvoice(sheetName) {
         // Doc already exists in PEAK from a previous run — try to recover doc number
         const recovered = tryRecoverPeakDoc_('/receipts', item.ref);
         if (recovered) {
-          writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, recovered);
+          writeReceiptCell_(sheet, item.rowIndex, RC.PEAK_DOC, recovered);
           logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'SUCCESS', recovered, 'Case A (recovered duplicate)');
           countA++;
         } else {
           // Can't fetch number — mark so we stop retrying; user can fill manually
-          writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, CONFIG.DUPLICATE_MARKER);
+          writeReceiptCell_(sheet, item.rowIndex, RC.PEAK_DOC, CONFIG.DUPLICATE_MARKER);
           logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'WARN', CONFIG.DUPLICATE_MARKER,
             'เอกสารมีใน PEAK แล้ว — ค้นหาเลขที่ใน PEAK แล้วอัปเดต Col PEAK_DOC ด้วยตนเอง');
         }
       } else if (kind === 'quota') {
         // โควตา/ลิมิตหมด — เคลียร์เซลล์ row นี้ (ให้รอบหน้าทำต่อ) แล้วหยุดทั้ง run
-        writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
+        writeReceiptCell_(sheet, item.rowIndex, RC.PEAK_DOC, '');
         logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
         quotaHit = true;
         stoppedEarly = true;
         break;
       } else {
-        writeReceiptCell_(sheet, item.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, '');
+        writeReceiptCell_(sheet, item.rowIndex, RC.PEAK_DOC, '');
         logEntry('Part1', sheetName, item.rowIndex, item.invCode, 'ERROR', '', e.message);
         countError++;
       }
@@ -217,13 +224,13 @@ function runPart1_TaxInvoice(sheetName) {
           chunk.map(x => ({
             rowIndex: x.rowIndex, invCode: x.invCode, docType: 'TAX',
             targetSheet: sheetName,
-            targetCol: CONFIG.RECEIPT_COL.PEAK_DOC,
+            targetCol: RC.PEAK_DOC,
             headerOffset: CONFIG.RECEIPT_HEADER_ROW,
           })));
         logEntry('Part1', sheetName, -1, 'BATCH', 'QUEUED', queueId, `Case B Tax ${chunk.length}`);
         countB += chunk.length;
       } catch (e) {
-        chunk.forEach(x => writeReceiptCell_(sheet, x.rowIndex, CONFIG.RECEIPT_COL.PEAK_DOC, ''));
+        chunk.forEach(x => writeReceiptCell_(sheet, x.rowIndex, RC.PEAK_DOC, ''));
         if (classifyError_(e) === 'quota') {
           logEntry('Part1', sheetName, -1, 'BATCH', 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
           quotaHit = true;
@@ -258,7 +265,7 @@ function runPart1_TaxInvoice(sheetName) {
           chunk.map(x => ({
             rowIndex: x.rowIndex, invCode: x.invCode, docType: 'REC',
             targetSheet: sheetName,
-            targetCol: CONFIG.RECEIPT_COL.PEAK_DOC,
+            targetCol: RC.PEAK_DOC,
             headerOffset: CONFIG.RECEIPT_HEADER_ROW,
           })));
         logEntry('Part1', sheetName, -1, 'BATCH', 'QUEUED', queueId, `Case B Rec ${chunk.length}`);
@@ -374,11 +381,12 @@ function getPaymentMethodMap_() {
 
 // ─── Helpers (Receipt-sheet specific) ─────────────────────────────────────────
 
-function ensureReceiptHeader_(sheet) {
+function ensureReceiptHeader_(sheet, rc) {
+  rc = rc || CONFIG.RECEIPT_COL;
   const headerRow = CONFIG.RECEIPT_HEADER_ROW;
-  const lastCol = sheet.getLastColumn();
-  if (lastCol >= CONFIG.RECEIPT_COL.PEAK_DOC + 1) return;
-  sheet.getRange(headerRow, CONFIG.RECEIPT_COL.PEAK_DOC + 1).setValue('เลขที่ PEAK');
+  // เขียน header เมื่อช่องว่าง (ชีต RE04 มีคอลัมน์อยู่แล้วแต่ header ว่าง)
+  const cell = sheet.getRange(headerRow, rc.PEAK_DOC + 1);
+  if (!String(cell.getValue() || '').trim()) cell.setValue('เลขที่ PEAK');
 }
 
 function writeReceiptCell_(sheet, rowIndex, col, value) {
@@ -414,10 +422,11 @@ function debugPart1Row() {
   const row = data[dataRowIndex];
   if (!row) { Logger.log('ไม่พบ row index: ' + dataRowIndex); return; }
 
-  const invCode = String(row[CONFIG.RECEIPT_COL.INV] || '').trim();
-  const amt     = parseAmount(row[CONFIG.RECEIPT_COL.AMT]);
-  const payDate = toDate(row[CONFIG.RECEIPT_COL.PAY_DATE]);
-  const inst    = String(row[CONFIG.RECEIPT_COL.INST_TYPE] || '').trim();
+  const RC = detectReceiptColumns_(sheet);
+  const invCode = String(row[RC.INV] || '').trim();
+  const amt     = parseAmount(row[RC.AMT]);
+  const payDate = toDate(row[RC.PAY_DATE]);
+  const inst    = RC.INST_TYPE >= 0 ? String(row[RC.INST_TYPE] || '').trim() : '';
   const desc    = buildReceiptDescription_(inst, invCode);
 
   Logger.log(`▼ Row ${dataRowIndex}: invCode=${invCode}, amt=${amt}, payDate=${payDate}`);

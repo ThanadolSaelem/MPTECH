@@ -81,12 +81,17 @@ const CONFIG = {
 
   // ─── Receipt Sheet Columns (รายการรับชำระ — source of truth) ─────────────────
   // Header แถว 2 (row 1 = summary totals, row 3 เริ่ม data)
+  //
+  // ⚠️ ค่าด้านล่างเป็น FALLBACK เท่านั้น — ตำแหน่งจริงถูก auto-detect จาก header
+  //    ด้วย detectReceiptColumns_() เพราะ layout เปลี่ยนมาแล้วหลายรอบ:
+  //    RE04.2026+ ตัด "ประเภทการชำระ" ออก เลื่อน "วันที่รับชำระ" มา index 2
+  //    และแทรก "สูตรวันที่เปิดTAX" ที่ index 3
   RECEIPT_HEADER_ROW: 2,
   RECEIPT_COL: {
     INV:          0,  // เลขที่สัญญา ← KEY
     DUE_DATE:     1,  // วันที่ครบกำหนด
-    INST_TYPE:    2,  // ประเภทการชำระ (ง.8 / ดาวน์ / ปิดยอด)
-    PAY_DATE:     3,  // วันที่รับชำระ (จากธนาคารจริง)
+    INST_TYPE:    2,  // ประเภทการชำระ (ง.8 / ดาวน์ / ปิดยอด) — ไม่มีใน RE04+
+    PAY_DATE:     3,  // วันที่รับชำระ (จากธนาคารจริง) — RE04+ อยู่ index 2
     TAX_DATE:     4,  // วันที่เปิดใบกำกับภาษี (Pi Nok ใส่ตาม Date Logic)
     SMEMOVE_DOC:  5,  // ใบเสร็จรับเงินเดิมจาก smemove (IVF-YYMMDD-NNN = ใบกำกับภาษี / IFF-YYMMDD-NNN = ค่าปรับ)
     NAME:         6,  // ชื่อลูกค้า
