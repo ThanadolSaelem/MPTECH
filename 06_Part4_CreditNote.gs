@@ -9,6 +9,14 @@
  *   - ยอดใบลดหนี้ = ยอดทำสัญญา - รวมเงินที่จ่ายมาแล้ว
  *     (= งวดที่ค้างอยู่ที่ต้องเคลียร์)
  *
+ * Business Rules เพิ่มเติม (ยืนยันจากพี่นก 2026-06-10):
+ *   - ส่วนลดปิดยอด: ไม่ออกใบลดหนี้ — เป็นส่วนลดเงินสด บันทึกเป็นค่าใช้จ่าย
+ *   - คืนเครื่องแล้วผ่อนต่อ finfin: ถือว่ารับคืนเบ็ดเสร็จทั้งสัญญาเดิม
+ *     → ออก CN เต็มยอดคงเหลือเหมือนเคสขายส่ง แล้วเปิดสัญญาใหม่แยก
+ *   - ใบกำกับภาษีที่เปิดแล้วแต่ลูกค้ายังไม่จ่าย (เปิดตาม tax point ของเช่าซื้อ):
+ *     เมื่อคืนเครื่องต้องออก CN หักใบกำกับภาษีเหล่านี้ออกด้วย
+ *     → รอผล debugProbeContactInvoices ก่อน wire อัตโนมัติ (ดูท้ายไฟล์)
+ *
  * Input: ไฟล์รับคืน (RETURN_SPREADSHEET_ID / RETURN_SHEET_NAME)
  *   - Date format: MM/DD/YYYY
  *   - ยอดเงินมี comma
@@ -305,6 +313,56 @@ function debugCreditNoteProbe() {
     Utilities.sleep(300);
   }
   Logger.log('--- Probe เสร็จ --- ดูว่า variant ไหน HTTP 200 หรือ error message ต่างกัน');
+}
+
+/**
+ * Probe: หาวิธี query ใบกำกับภาษีค้างชำระของ contact จาก PEAK
+ *
+ * เคสคืนเครื่อง (พี่นก 2026-06-10): ใบกำกับภาษีที่เปิดไปแล้วตาม tax point
+ * แต่ลูกค้ายังไม่จ่าย ต้องออก CN หักออกด้วย — ก่อน wire อัตโนมัติต้องรู้:
+ *   1. GET /invoices ใช้ param ไหน filter ตาม contact ได้ (PEAK doc ไม่ระบุชัด)
+ *   2. field ไหนใน response บอกสถานะค้างชำระ/ชำระแล้ว
+ *
+ * วิธีใช้: แก้ invCode เป็นเลขสัญญาที่รู้ว่ามีใบกำกับภาษีค้างใน PEAK
+ * แล้วรันครั้งเดียว ส่ง log ทั้งหมดกลับมา
+ */
+function debugProbeContactInvoices() {
+  const invCode = '1761985715';  // ← แก้เป็นเลขสัญญาที่มีใบกำกับภาษีค้างชำระใน PEAK
+
+  const contactUuid = getContactId_(invCode);
+  Logger.log(`contactUuid [${invCode}]: ${contactUuid}`);
+
+  const trials = [
+    { label: 'plain list page 1', params: { page: 1 } },
+    { label: 'contactCode',       params: { contactCode: invCode } },
+    { label: 'contactId (uuid)',  params: contactUuid ? { contactId: contactUuid } : null },
+    { label: 'customerCode',      params: { customerCode: invCode } },
+    { label: 'keyword',           params: { keyword: invCode } },
+    { label: 'searchText',        params: { searchText: invCode } },
+  ];
+
+  for (const t of trials) {
+    if (!t.params) { Logger.log(`[${t.label}] SKIP — ไม่มี contactUuid`); continue; }
+    try {
+      const res = callPeakAPI('get', '/invoices', null, t.params);
+      const list = res && res.PeakInvoices && res.PeakInvoices.invoices;
+      const n = Array.isArray(list) ? list.length : -1;
+      Logger.log(`[${t.label}] count=${n}`);
+      if (n > 0) {
+        // item แรกแบบเต็ม — เพื่อดูชื่อ field สถานะชำระ/ค้างชำระ
+        Logger.log(`[${t.label}] first item: ${JSON.stringify(list[0]).slice(0, 800)}`);
+        // เช็คว่า filter ทำงานจริงไหม (ถ้า PEAK ignore param จะได้ list รวมทุก contact)
+        const codes = list.slice(0, 10).map(x => (x.contact && x.contact.code) || x.contactCode || '?');
+        Logger.log(`[${t.label}] contact codes 10 แรก: ${codes.join(', ')}`);
+      } else {
+        Logger.log(`[${t.label}] raw: ${JSON.stringify(res).slice(0, 300)}`);
+      }
+    } catch (e) {
+      Logger.log(`[${t.label}] ERROR: ${e.message}`);
+    }
+    Utilities.sleep(300);
+  }
+  Logger.log('--- Probe เสร็จ — ส่ง log กลับมาเพื่อ wire การออก CN หักใบกำกับภาษีค้างชำระใน Part 4 ---');
 }
 
 /**
