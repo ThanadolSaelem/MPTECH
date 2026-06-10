@@ -93,13 +93,28 @@ function routeAction_(action, p) {
  * ถ้า name ว่าง → return null (GAS จะ default เป็นเดือนปัจจุบัน)
  * ถ้า name เป็น "MM.YYYY" → เติม prefix อัตโนมัติ
  * ถ้า name มี prefix อยู่แล้ว → คืนตามเดิม
+ * ถ้า prefix = RECEIPT_SHEET_PREFIX → ลอง RECEIPT_SHEET_PREFIXES ทุกตัว
+ * แล้วเลือกชีตที่มีอยู่จริง (เช่น Receipt04.2026 หรือ RE04.2026)
  */
 function resolveSheet_(name, prefix) {
   if (!name || !String(name).trim()) return null;
   const s = String(name).trim();
-  // Check against all known prefixes so "RE03.2026" isn't re-prefixed
-  const allPrefixes = Array.from(new Set([prefix, ...(CONFIG.RECEIPT_SHEET_PREFIXES || [])]));
-  if (allPrefixes.some(p => s.startsWith(p))) return s;
+  // ถ้า user พิมพ์ชื่อชีตเต็มมาแล้ว (ขึ้นต้นด้วย prefix ที่รู้จัก) — คืนตามเดิม
+  const receiptPrefixes = CONFIG.RECEIPT_SHEET_PREFIXES || [CONFIG.RECEIPT_SHEET_PREFIX];
+  const allKnownPrefixes = Array.from(new Set([
+    prefix, CONFIG.SUM_SHEET_PREFIX, CONFIG.STATEMENT_SHEET_PREFIX, ...receiptPrefixes,
+  ]));
+  if (allKnownPrefixes.some(p => s.toLowerCase().startsWith(p.toLowerCase()))) return s;
+
+  // ถ้าเป็น receipt family → ตรวจชีตจริงในไฟล์ แล้วเลือก prefix ที่มีอยู่
+  if (prefix === CONFIG.RECEIPT_SHEET_PREFIX) {
+    try {
+      const ss = SpreadsheetApp.openById(getSpreadsheetId());
+      for (const p of receiptPrefixes) {
+        if (ss.getSheetByName(`${p}${s}`)) return `${p}${s}`;
+      }
+    } catch (_) { /* fall through */ }
+  }
   return `${prefix}${s}`;
 }
 

@@ -333,14 +333,24 @@ function getSheetByNameSmart_(ss, sheetName) {
   if (direct) return direct;
   const m = String(sheetName).match(/^([A-Za-z]+)[.\-]?(\d{1,2}[.\-\/]\d{4}|\d{4}[.\-\/]\d{1,2})$/);
   if (!m) return null;
-  try {
-    const monthStr = m[2]
-      .replace(/[.\-\/](\d{4})$/, '.$1')
-      .replace(/^(\d{4})[.\-\/](\d{1,2})$/, '$2.$1');
-    return findSheetRobust(ss, m[1], monthStr);
-  } catch (_) {
-    return null;
+  const monthStr = m[2]
+    .replace(/[.\-\/](\d{4})$/, '.$1')
+    .replace(/^(\d{4})[.\-\/](\d{1,2})$/, '$2.$1');
+
+  // ถ้า prefix อยู่ใน RECEIPT_SHEET_PREFIXES → ลองทุก prefix ในกลุ่มเดียวกัน
+  const receiptPrefixes = CONFIG.RECEIPT_SHEET_PREFIXES || [CONFIG.RECEIPT_SHEET_PREFIX];
+  const inReceiptFamily = receiptPrefixes.some(p => p.toLowerCase() === m[1].toLowerCase());
+  const prefixesToTry = inReceiptFamily ? receiptPrefixes : [m[1]];
+
+  for (const prefix of prefixesToTry) {
+    const candidate = ss.getSheetByName(`${prefix}${monthStr}`);
+    if (candidate) return candidate;
+    try {
+      const robust = findSheetRobust(ss, prefix, monthStr);
+      if (robust) return robust;
+    } catch (_) { /* ลองตัวถัดไป */ }
   }
+  return null;
 }
 
 /**
