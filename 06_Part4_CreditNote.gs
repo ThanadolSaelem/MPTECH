@@ -15,7 +15,10 @@
  *     → ออก CN เต็มยอดคงเหลือเหมือนเคสขายส่ง แล้วเปิดสัญญาใหม่แยก
  *   - ใบกำกับภาษีที่เปิดแล้วแต่ลูกค้ายังไม่จ่าย (เปิดตาม tax point ของเช่าซื้อ):
  *     เมื่อคืนเครื่องต้องออก CN หักใบกำกับภาษีเหล่านี้ออกด้วย
- *     → รอผล debugProbeContactInvoices ก่อน wire อัตโนมัติ (ดูท้ายไฟล์)
+ *     → wire แล้ว: creditUnpaidTaxInvoices_ หาเลข IVF จากชีต Receipt/RE
+ *       (แถวที่มีวันเปิดใบกำกับแต่ไม่มีวันรับชำระ) แล้วเช็ค remainAmount ใน PEAK
+ *       ก่อนออก CN รายใบ — probe 2026-06-10 ยืนยัน: PEAK ignore filter param
+ *       ทุกตัวใน GET /invoices จึงต้อง lookup ด้วย code ตรงๆ เท่านั้น
  *
  * Input: ไฟล์รับคืน (RETURN_SPREADSHEET_ID / RETURN_SHEET_NAME)
  *   - Date format: MM/DD/YYYY
@@ -56,7 +59,7 @@ function runPart4_CreditNote() {
   ensureReturnFileHeader_(sheet);
 
   const data = getSheetData(sheet);
-  let countOk = 0, countSkip = 0, countError = 0;
+  let countOk = 0, countSkip = 0, countError = 0, countTaxCn = 0;
 
   const guard = makeTimeGuard_(5);
   let stoppedEarly = false, quotaHit = false;
@@ -139,8 +142,21 @@ function runPart4_CreditNote() {
       const cn = (res.PeakCreditNotes && res.PeakCreditNotes.creditNotes && res.PeakCreditNotes.creditNotes[0]) || res;
       const docNo = cn.creditNoteCode || cn.code || JSON.stringify(res).substring(0, 80);
 
+      // หักใบกำกับภาษีค้างชำระของสัญญานี้ด้วย (พี่นก 2026-06-10)
+      // ทำก่อนเขียน docNo — ถ้า quota กลางคัน เซลล์ยังเป็น PROCESSING
+      // รอบหน้าจะ recover CN หลักจาก duplicate แล้วออก CN ที่เหลือต่อ
+      const taxCn = creditUnpaidTaxInvoices_(invCode, returnDate);
+      countTaxCn += taxCn.ok;
+      if (taxCn.quota) {
+        writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, '');
+        quotaHit = true;
+        stoppedEarly = true;
+        break;
+      }
+
       writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, docNo);
-      logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'SUCCESS', docNo);
+      logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'SUCCESS', docNo,
+        taxCn.ok > 0 ? `+CN ใบกำกับค้างชำระ ${taxCn.ok} ใบ` : '');
       countOk++;
 
     } catch (e) {
@@ -155,6 +171,17 @@ function runPart4_CreditNote() {
       if (kind === 'duplicate') {
         const cnRef = buildReference(invCode, formatDateForAPI(returnDate), 'CN');
         const recovered = tryRecoverPeakDoc_('/creditnotes', cnRef);
+
+        // CN หลักมีอยู่แล้ว — ยังต้องหักใบกำกับภาษีค้างชำระให้ครบ (idempotent)
+        const taxCnDup = creditUnpaidTaxInvoices_(invCode, returnDate);
+        countTaxCn += taxCnDup.ok;
+        if (taxCnDup.quota) {
+          writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, '');
+          quotaHit = true;
+          stoppedEarly = true;
+          break;
+        }
+
         if (recovered) {
           writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, recovered);
           logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'SUCCESS', recovered, 'กู้เลขเอกสารซ้ำ');
@@ -182,7 +209,7 @@ function runPart4_CreditNote() {
   } else {
     clearContinuation_('runPart4_CreditNote');
   }
-  const summary = `Part 4 เสร็จ — สร้างแล้ว: ${countOk}, ข้าม: ${countSkip}, Error: ${countError}${tail}`;
+  const summary = `Part 4 เสร็จ — สร้างแล้ว: ${countOk}, CN ใบกำกับค้างชำระ: ${countTaxCn}, ข้าม: ${countSkip}, Error: ${countError}${tail}`;
   toast(summary, 'FinFin', 10);
   Logger.log(summary);
   return summary;
@@ -229,12 +256,120 @@ function getInvoiceUUID_(invCode) {
     const res = callPeakAPI('get', '/invoices', null, { code: invoiceCode });
     Logger.log(`getInvoiceUUID_ [${invCode}] code=${invoiceCode}: ${JSON.stringify(res).slice(0, 200)}`);
     const invoices = res && res.PeakInvoices && res.PeakInvoices.invoices;
-    const inv = Array.isArray(invoices) ? invoices[0] : invoices;
+    // probe 2026-06-10: PEAK ignore query param ที่ไม่รู้จักแล้วคืน list ทั้งหมด
+    // → ต้อง validate ว่า code ตรงจริง ไม่งั้นอาจได้ใบแจ้งหนี้ของสัญญาอื่น
+    const list = Array.isArray(invoices) ? invoices : (invoices ? [invoices] : []);
+    const inv = list.find(d => d && d.code === invoiceCode);
     return (inv && (inv.id || inv.invoiceId)) || null;
   } catch (e) {
     Logger.log(`getInvoiceUUID_ error [${invCode}]: ${e.message}`);
     return null;
   }
+}
+
+// ─── ใบลดหนี้ใบกำกับภาษีค้างชำระ (พี่นก 2026-06-10) ─────────────────────────────
+
+/**
+ * หาใบกำกับภาษีค้างชำระของสัญญาจากชีต Receipt/RE ทุกเดือน
+ * = แถวที่มีวันที่เปิดใบกำกับภาษี + เลข IVF แต่ไม่มีวันที่รับชำระ (ค้างชำระ)
+ * @returns {Array<{code:string, amt:number, sheet:string}>}
+ */
+function findUnpaidTaxInvoiceCodes_(invCode) {
+  const ss = SpreadsheetApp.openById(getSpreadsheetId());
+  const out = [];
+  for (const sheet of ss.getSheets()) {
+    // เฉพาะชีตรับชำระรายเดือน: Receipt03.2026 / RE04.2026
+    if (!/^(Receipt|RE)\d{2}\.\d{4}$/.test(sheet.getName())) continue;
+    const rc = detectReceiptColumns_(sheet);
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= CONFIG.RECEIPT_HEADER_ROW) continue;
+    const data = sheet.getRange(
+      CONFIG.RECEIPT_HEADER_ROW + 1, 1,
+      lastRow - CONFIG.RECEIPT_HEADER_ROW, sheet.getLastColumn()
+    ).getValues();
+    for (const row of data) {
+      if (String(row[rc.INV] || '').trim() !== String(invCode)) continue;
+      if (toDate(row[rc.PAY_DATE])) continue;                    // จ่ายแล้ว — ข้าม
+      if (!toDate(row[rc.TAX_DATE])) continue;                   // ยังไม่เปิดใบกำกับ
+      const ivf = String(row[rc.SMEMOVE_DOC] || '').trim();
+      if (!ivf.startsWith('IVF-')) continue;
+      out.push({ code: ivf, amt: parseAmount(row[rc.AMT]), sheet: sheet.getName() });
+    }
+  }
+  return out;
+}
+
+/**
+ * ออก CN หักใบกำกับภาษีค้างชำระทั้งหมดของสัญญา (เรียกตอนคืนเครื่อง)
+ *
+ * - lookup ใบกำกับใน PEAK ด้วย code (IVF-xxx) + validate code ตรงจริง
+ * - ออก CN เฉพาะใบที่ remainAmount > 0 (ยังค้างจริงใน PEAK)
+ * - idempotent: CN code = `${IVF}-CN` — ซ้ำ → กู้เลขเดิม นับเป็นสำเร็จ
+ * - เจอ quota → หยุดและคืน quota:true ให้ runner หลักหยุดทั้ง run (ไม่ throw)
+ * @returns {{ok:number, skip:number, fail:number, quota:boolean}}
+ */
+function creditUnpaidTaxInvoices_(invCode, returnDate) {
+  const result = { ok: 0, skip: 0, fail: 0, quota: false };
+  const unpaid = findUnpaidTaxInvoiceCodes_(invCode);
+  for (const u of unpaid) {
+    try {
+      const res = callPeakAPI('get', '/invoices', null, { code: u.code });
+      const raw = (res.PeakInvoices && res.PeakInvoices.invoices) || [];
+      const list = Array.isArray(raw) ? raw : [raw];
+      const doc = list.find(d => d && d.code === u.code);
+      if (!doc) {
+        logEntry('Part4-TAXCN', CONFIG.RETURN_SHEET_NAME, -1, invCode, 'SKIP', '',
+          `ไม่พบใบกำกับภาษี ${u.code} ใน PEAK (อ้างอิง ${u.sheet}) — อาจยังไม่ได้สร้าง`);
+        result.skip++;
+        continue;
+      }
+      const remain = Number(doc.remainAmount || 0);
+      if (remain <= 0) {
+        logEntry('Part4-TAXCN', CONFIG.RETURN_SHEET_NAME, -1, invCode, 'SKIP', '',
+          `${u.code} ไม่มียอดค้างใน PEAK (remainAmount=0) — มีใบเสร็จตัดไปแล้ว ตรวจว่าใบเสร็จนั้นถูกต้องไหม`);
+        result.skip++;
+        continue;
+      }
+      const desc = `ลดหนี้ใบกำกับภาษีค้างชำระ ${u.code} (คืนเครื่อง) สัญญา ${invCode}`;
+      const dateStr = formatDateForAPI(returnDate);
+      const payload = {
+        transactionType:    102,       // ใบกำกับถูกสร้างผ่าน /invoices (Part 1 Case B)
+        transactionId:      doc.id,
+        reasonType:         1,
+        reasonDescription:  desc,
+        goodsReturn:        '0',       // ลดหนี้ทางบัญชี — ตัวเครื่องจัดการใน CN หลักแล้ว
+        transactions: {
+          code:       `${u.code}-CN`,
+          issuedDate: parseInt(dateStr.replace(/-/g, ''), 10),
+          remark:     desc,
+          // ไม่ระบุ products — PEAK ดึงจากใบกำกับต้นฉบับเอง (verified v7)
+        },
+      };
+      const cnRes = callPeakAPI('post', '/creditnotes', { PeakCreditNotes: { creditNotes: [payload] } });
+      const cn = (cnRes.PeakCreditNotes && cnRes.PeakCreditNotes.creditNotes && cnRes.PeakCreditNotes.creditNotes[0]) || cnRes;
+      const docNo = cn.creditNoteCode || cn.code || '';
+      logEntry('Part4-TAXCN', CONFIG.RETURN_SHEET_NAME, -1, invCode, 'SUCCESS', docNo,
+        `หัก ${u.code} ยอดค้าง ${remain}`);
+      result.ok++;
+    } catch (e) {
+      const kind = classifyError_(e);
+      if (kind === 'quota') {
+        logEntry('Part4-TAXCN', CONFIG.RETURN_SHEET_NAME, -1, invCode, 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
+        result.quota = true;
+        break;
+      }
+      if (kind === 'duplicate') {
+        const recovered = tryRecoverPeakDoc_('/creditnotes', `${u.code}-CN`);
+        logEntry('Part4-TAXCN', CONFIG.RETURN_SHEET_NAME, -1, invCode,
+          'SUCCESS', recovered || '[IN-PEAK]', `CN ของ ${u.code} มีอยู่แล้ว`);
+        result.ok++;
+        continue;
+      }
+      logEntry('Part4-TAXCN', CONFIG.RETURN_SHEET_NAME, -1, invCode, 'ERROR', '', `${u.code}: ${e.message}`);
+      result.fail++;
+    }
+  }
+  return result;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
