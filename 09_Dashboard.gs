@@ -60,10 +60,11 @@ function refreshDashboard(monthOverride) {
 
 function countPart1Tax_(sheet) {
   if (!sheet) return notFound_();
+  const rc = detectReceiptColumns_(sheet);
   let done = 0, queued = 0, missing = 0;
   for (const row of getSheetRange_(sheet, CONFIG.RECEIPT_HEADER_ROW)) {
-    if (parseAmount(row[CONFIG.RECEIPT_COL.AMT]) <= 0) continue;
-    const doc = String(row[CONFIG.RECEIPT_COL.PEAK_DOC] || '').trim();
+    if (parseAmount(row[rc.AMT]) <= 0) continue;
+    const doc = String(row[rc.PEAK_DOC] || '').trim();
     if (doc === CONFIG.PROCESSING_MARKER) queued++;
     else if (doc) done++;
     else missing++;

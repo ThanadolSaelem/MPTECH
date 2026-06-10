@@ -629,6 +629,54 @@ function isDuplicateCodeError_(e) {
 }
 
 /**
+ * Auto-detect ตำแหน่งคอลัมน์ Receipt sheet จาก header จริง
+ *
+ * Layout เปลี่ยนมาแล้วหลายรอบ — RE04.2026+ ตัดคอลัมน์ "ประเภทการชำระ" ออก
+ * เลื่อน "วันที่รับชำระ" มา index 2 และแทรก "สูตรวันที่เปิดTAX" ที่ index 3
+ * ถ้าใช้ CONFIG.RECEIPT_COL ตายตัว PAY_DATE จะไปอ่านคอลัมน์สูตร (มีวันที่เสมอ)
+ * → แถวค้างชำระถูกมองว่าจ่ายแล้ว = สร้างใบเสร็จผิดใน PEAK
+ *
+ * คืน object หน้าตาเดียวกับ CONFIG.RECEIPT_COL
+ *   - หา header ไม่เจอทั้ง sheet (ไม่ใช่ Receipt sheet) → คืน CONFIG.RECEIPT_COL เดิม
+ *   - INST_TYPE ไม่มีใน layout ใหม่ → -1 (ผู้เรียกต้องเช็ค >= 0 ก่อนอ่าน)
+ *   - PEAK_DOC ยังไม่มี header → ถัดจาก AMT
+ */
+function detectReceiptColumns_(sheet) {
+  const fallback = CONFIG.RECEIPT_COL;
+  let header;
+  try {
+    header = sheet.getRange(CONFIG.RECEIPT_HEADER_ROW, 1, 1, sheet.getLastColumn())
+      .getValues()[0].map(h => String(h || '').replace(/\s+/g, ''));
+  } catch (e) {
+    return fallback;
+  }
+  const find = test => header.findIndex(test);
+  const col = {
+    INV:         find(h => h.includes('เลขที่สัญญา')),
+    DUE_DATE:    find(h => h.includes('ครบกำหนด')),
+    INST_TYPE:   find(h => h.includes('ประเภทการชำระ')),
+    PAY_DATE:    find(h => h.includes('วันที่รับชำระ')),
+    TAX_DATE:    find(h => h.includes('เปิดใบกำกับภาษี') && !h.includes('สูตร')),
+    SMEMOVE_DOC: find(h => h.includes('ใบเสร็จรับเงิน')),
+    NAME:        find(h => h.includes('ชื่อลูกค้า')),
+    AMT:         find(h => h.includes('ยอดเงินรวม')),
+    PEAK_DOC:    find(h => h.includes('เลขที่PEAK')),
+  };
+  if (col.INV < 0 || col.AMT < 0) {
+    Logger.log('detectReceiptColumns_: header ไม่ตรง signature ของ Receipt sheet — ใช้ CONFIG.RECEIPT_COL เดิม');
+    return fallback;
+  }
+  // PEAK_DOC อาจยังไม่มี header (ensureReceiptHeader_ จะเติมให้) → ถัดจาก AMT
+  if (col.PEAK_DOC < 0) col.PEAK_DOC = Math.max(fallback.PEAK_DOC, col.AMT + 1);
+  // คอลัมน์อื่นที่หาไม่เจอ → fallback ค่า config เดิม (ยกเว้น INST_TYPE — RE04+ ไม่มีจริง)
+  for (const k of ['DUE_DATE', 'PAY_DATE', 'TAX_DATE', 'SMEMOVE_DOC', 'NAME']) {
+    if (col[k] < 0) col[k] = fallback[k];
+  }
+  Logger.log(`detectReceiptColumns_ [${sheet.getName()}]: ${JSON.stringify(col)}`);
+  return col;
+}
+
+/**
  * พยายามดึงเลขที่เอกสารจาก PEAK ด้วย GET /{endpoint}?code={code}
  * ใช้เมื่อได้รับ error 315 เพื่อ recover เลขที่เอกสารที่สร้างไปแล้ว
  * @param {string} endpoint  เช่น '/receipts', '/invoices'

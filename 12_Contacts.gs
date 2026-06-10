@@ -266,11 +266,12 @@ function runSyncContacts(sheetName) {
   if (!sheet) throw new Error(`ไม่พบ Sheet "${sheetName}"`);
 
   const data = getReceiptData_(sheet);
+  const rc = detectReceiptColumns_(sheet);
   const codeNameMap = {};
   for (const row of data) {
-    const code = String(row[CONFIG.RECEIPT_COL.INV] || '').trim();
+    const code = String(row[rc.INV] || '').trim();
     if (code && !codeNameMap[code]) {
-      codeNameMap[code] = String(row[CONFIG.RECEIPT_COL.NAME] || '').trim();
+      codeNameMap[code] = String(row[rc.NAME] || '').trim();
     }
   }
 
@@ -299,12 +300,13 @@ function clearBadPeakDocs(sheetName) {
   if (!sheet) throw new Error(`ไม่พบ Sheet "${sheetName}"`);
 
   const data = getReceiptData_(sheet);
+  const rc = detectReceiptColumns_(sheet);
   let cleared = 0;
 
   for (let i = 0; i < data.length; i++) {
-    const val = String(data[i][CONFIG.RECEIPT_COL.PEAK_DOC] || '').trim();
+    const val = String(data[i][rc.PEAK_DOC] || '').trim();
     if (val.startsWith('{') || val === CONFIG.PROCESSING_MARKER) {
-      writeReceiptCell_(sheet, i, CONFIG.RECEIPT_COL.PEAK_DOC, '');
+      writeReceiptCell_(sheet, i, rc.PEAK_DOC, '');
       cleared++;
     }
   }
