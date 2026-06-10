@@ -306,31 +306,30 @@ function buildRemainingDueDates_(firstDue, count) {
 function buildPart1CoveredSet_(ss, sumSheetName) {
   const suffix = sumSheetName.replace(new RegExp('^' + CONFIG.SUM_SHEET_PREFIX), '');
   const covered = new Set();
-  let receiptName = '';
-  try {
-    // ลองทุก prefix ที่รู้จัก (Receipt05.2026 / RE05.2026)
-    let rSheet = null;
-    for (const p of (CONFIG.RECEIPT_SHEET_PREFIXES || [CONFIG.RECEIPT_SHEET_PREFIX])) {
-      receiptName = p + suffix;
-      rSheet = ss.getSheetByName(receiptName);
-      if (rSheet) break;
-    }
-    if (!rSheet) return covered;
-    const rc = detectReceiptColumns_(rSheet);
-    const startRow = CONFIG.RECEIPT_HEADER_ROW + 1;
-    const lastRow = rSheet.getLastRow();
-    if (lastRow < startRow) return covered;
-    const numCols = rc.PEAK_DOC + 1;
-    const data = rSheet.getRange(startRow, 1, lastRow - startRow + 1, numCols).getValues();
-    for (const row of data) {
-      const invCode = String(row[rc.INV]  || '').trim();
-      const peakDoc = String(row[rc.PEAK_DOC] || '').trim();
-      if (invCode && peakDoc && peakDoc !== CONFIG.PROCESSING_MARKER) {
-        covered.add(invCode);
+  // รวมข้อมูลจากชีตทุก prefix ที่รู้จัก (เผื่อข้อมูลกระจาย Receipt05 + RE05)
+  const prefixes = CONFIG.RECEIPT_SHEET_PREFIXES || [CONFIG.RECEIPT_SHEET_PREFIX];
+  for (const prefix of prefixes) {
+    const receiptName = prefix + suffix;
+    try {
+      const rSheet = ss.getSheetByName(receiptName);
+      if (!rSheet) continue;
+      const startRow = CONFIG.RECEIPT_HEADER_ROW + 1;
+      const lastRow = rSheet.getLastRow();
+      if (lastRow < startRow) continue;
+      const rc = (typeof detectReceiptColumns_ === 'function')
+        ? detectReceiptColumns_(rSheet) : CONFIG.RECEIPT_COL;
+      const numCols = Math.max(rc.PEAK_DOC, rc.INV) + 1;
+      const data = rSheet.getRange(startRow, 1, lastRow - startRow + 1, numCols).getValues();
+      for (const row of data) {
+        const invCode = String(row[rc.INV]  || '').trim();
+        const peakDoc = String(row[rc.PEAK_DOC] || '').trim();
+        if (invCode && peakDoc && peakDoc !== CONFIG.PROCESSING_MARKER) {
+          covered.add(invCode);
+        }
       }
+    } catch (e) {
+      Logger.log(`buildPart1CoveredSet_: ไม่สามารถโหลด ${receiptName} — ${e.message}`);
     }
-  } catch (e) {
-    Logger.log(`buildPart1CoveredSet_: ไม่สามารถโหลด ${receiptName} — ${e.message}`);
   }
   return covered;
 }

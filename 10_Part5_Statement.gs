@@ -216,11 +216,20 @@ function getReceiptData_(sheet) {
 
 function getCurrentReceiptSheetName() {
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
-  try {
-    return findSheetRobust(ss, CONFIG.RECEIPT_SHEET_PREFIX, getCurrentMonthSheetName()).getName();
-  } catch (_) {
-    return findLatestSheetByPrefix(ss, CONFIG.RECEIPT_SHEET_PREFIX).getName();
+  const month = getCurrentMonthSheetName();
+  const prefixes = CONFIG.RECEIPT_SHEET_PREFIXES || [CONFIG.RECEIPT_SHEET_PREFIX];
+  for (const prefix of prefixes) {
+    const direct = ss.getSheetByName(`${prefix}${month}`);
+    if (direct) return direct.getName();
+    try {
+      const robust = findSheetRobust(ss, prefix, month);
+      if (robust) return robust.getName();
+    } catch (_) { /* ลองตัวถัดไป */ }
   }
+  for (const prefix of prefixes) {
+    try { return findLatestSheetByPrefix(ss, prefix).getName(); } catch (_) {}
+  }
+  throw new Error(`ไม่พบ Sheet รับชำระ (prefix: ${prefixes.join(', ')})`);
 }
 
 function getCurrentSumSheetName() {
