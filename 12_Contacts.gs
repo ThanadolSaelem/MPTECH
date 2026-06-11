@@ -262,11 +262,11 @@ function getContactId_(invCode) {
 function runSyncContacts(sheetName) {
   sheetName = sheetName || getCurrentReceiptSheetName();
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
-  const sheet = ss.getSheetByName(sheetName);
+  const sheet = getSheetByNameSmart_(ss, sheetName);
   if (!sheet) throw new Error(`ไม่พบ Sheet "${sheetName}"`);
 
-  const data = getReceiptData_(sheet);
   const rc = detectReceiptColumns_(sheet);
+  const data = getReceiptData_(sheet);
   const codeNameMap = {};
   for (const row of data) {
     const code = String(row[rc.INV] || '').trim();
@@ -296,11 +296,11 @@ function runSyncContacts(sheetName) {
 function clearBadPeakDocs(sheetName) {
   sheetName = sheetName || getCurrentReceiptSheetName();
   const ss = SpreadsheetApp.openById(getSpreadsheetId());
-  const sheet = ss.getSheetByName(sheetName);
+  const sheet = getSheetByNameSmart_(ss, sheetName);
   if (!sheet) throw new Error(`ไม่พบ Sheet "${sheetName}"`);
 
-  const data = getReceiptData_(sheet);
   const rc = detectReceiptColumns_(sheet);
+  const data = getReceiptData_(sheet);
   let cleared = 0;
 
   for (let i = 0; i < data.length; i++) {
@@ -336,6 +336,7 @@ function runUpdateContactDetails(sheetName) {
 
   toast(`⏳ อัปเดตเลขบัตร + ที่อยู่ ใน PEAK Contact — ${sheetName}`, 'FinFin');
 
+  const SC    = detectSumColumns_(sheet);
   const data  = getSumData_(sheet);
   let countOk = 0, countSkip = 0, countError = 0;
   const guard = makeTimeGuard_(5);
@@ -344,9 +345,9 @@ function runUpdateContactDetails(sheetName) {
   for (let i = 0; i < data.length; i++) {
     if (guard.expired()) { stoppedEarly = true; break; }
     const row     = data[i];
-    const invCode = String(row[CONFIG.COL.INV]      || '').trim();
-    const idCard  = String(row[CONFIG.COL.ID_CARD]  || '').trim();
-    const address = String(row[CONFIG.COL.ADDRESS]  || '').trim();
+    const invCode = String(row[SC.INV]      || '').trim();
+    const idCard  = String(row[SC.ID_CARD]  || '').trim();
+    const address = String(row[SC.ADDRESS]  || '').trim();
     if (!invCode || (!idCard && !address)) { countSkip++; continue; }
 
     try {
@@ -567,6 +568,7 @@ function runFixContactNames(sheetName) {
 
   toast(`⏳ แก้ชื่อ Contact — ${sheetName}`, 'FinFin');
 
+  const SC = detectSumColumns_(sheet);
   const data = getSumData_(sheet);
   let countOk = 0, countSkip = 0, countError = 0;
   const guard = makeTimeGuard_(5);
@@ -575,11 +577,11 @@ function runFixContactNames(sheetName) {
   for (let i = 0; i < data.length; i++) {
     if (guard.expired()) { stoppedEarly = true; break; }
     const row = data[i];
-    const invCode = String(row[CONFIG.COL.INV] || '').trim();
+    const invCode = String(row[SC.INV] || '').trim();
     if (!invCode) continue;
 
-    const title   = String(row[CONFIG.COL.TITLE] || '').trim();
-    const rawName = String(row[CONFIG.COL.NAME]  || '').trim();
+    const title   = String(row[SC.TITLE] || '').trim();
+    const rawName = String(row[SC.NAME]  || '').trim();
     const correctName = (rawName.startsWith(title) ? rawName : (title + rawName)).trim();
     if (!correctName) { countSkip++; continue; }
 

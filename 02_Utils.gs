@@ -441,6 +441,85 @@ function getSheetData(sheet) {
   return sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
 }
 
+// ─── Sum Sheet Column Auto-Detect ────────────────────────────────────────────
+// (detectReceiptColumns_ อยู่ด้านล่าง — ตามที่ HEAD เพิ่มไว้)
+
+/**
+ * Auto-detect คอลัมน์ใน Sum sheet (สัญญา) จาก header row
+ * รองรับ layout เก่า + ใหม่ (Sum04+ เพิ่ม ที่อยู่/เลขบัตร/ชื่อสินค้า/Adj ค่างวด/คืนเครื่อง)
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @returns {Object} map ของ COL + SVC_DOC + INV_DOC (output cols)
+ */
+function detectSumColumns_(sheet) {
+  const fallback = CONFIG.COL;
+  let header;
+  try {
+    header = sheet.getRange(CONFIG.SUM_HEADER_ROW, 1, 1, sheet.getLastColumn())
+      .getValues()[0].map(h => String(h || '').replace(/\s+/g, ''));
+  } catch (_) {
+    return Object.assign({}, fallback, {
+      SVC_DOC: fallback.DUE_DATE + 1,
+      INV_DOC: fallback.DUE_DATE + 2,
+    });
+  }
+
+  const find = test => header.findIndex(test);
+  const col = {
+    SEQ:             find(h => h === 'ลำดับ'),
+    CONTRACT_DATE:   find(h => h.includes('วันที่ทำสัญญา')),
+    INV:             find(h => h.includes('เลขที่สัญญา')),
+    TITLE:           find(h => h.includes('คำนำหน้า')),
+    NAME:            find(h => h.includes('ชื่อลูกค้า')),
+    ADDRESS:         find(h => h === 'ที่อยู่' || h.includes('ที่อยู่')),
+    ID_CARD:         find(h => h.includes('เลขที่บัตร') || h.includes('บัตรปชช') || h.includes('บัตรประชาชน')),
+    PRODUCT:         find(h => h.includes('ชื่อสินค้า') || h === 'สินค้า'),
+    CONTRACT_AMT:    find(h => h.includes('ยอดทำสัญญา')),
+    INSTALLMENT_N:   find(h => h.includes('จำนวนงวด')),
+    INSTALLMENT_AMT: find(h => h.includes('ผ่อนงวดละ')),
+    PAY_DAY:         find(h => h.includes('จ่ายทุกวันที่')),
+    BRANCH:          find(h => h === 'สาขา'),
+    AR_BEGIN:        find(h => h.includes('คงเหลือต้นงวด') || h.includes('ลูกหนี้ต้น')),
+    DOWN_OR_MONTHLY: find(h => h.includes('เงินดาวน์')),
+    ADJ:             find(h => h.includes('Adj')),
+    LATE_FEE:        find(h => h.includes('ค่าปรับ')),
+    SERVICE_FEE:     find(h => h.includes('ค่าบริการ')),
+    RETURN:          find(h => h === 'คืนเครื่อง'),
+    CLOSEOUT_DISC:   find(h => h.includes('ส่วนลดปิดยอด')),
+    AR_END:          find(h => h.includes('คงเหลือปลายงวด') || h.includes('ลูกหนี้ปลาย')),
+    DUE_DATE:        find(h => h.includes('วันที่ครบกำหนด')),
+    RETURN_DATE:     find(h => h.includes('วันที่รับคืน')),
+    DEBT_STATUS:     find(h => h.includes('สถานะลูกหนี้')),
+  };
+
+  // ต้องเจอ INV และ CONTRACT_DATE เป็นอย่างน้อย — ไม่งั้นใช้ fallback
+  if (col.INV < 0 || col.CONTRACT_DATE < 0) {
+    Logger.log(`detectSumColumns_ [${sheet.getName()}]: ใช้ fallback (ไม่พบ INV/CONTRACT_DATE)`);
+    return Object.assign({}, fallback, {
+      SVC_DOC: fallback.SVC_DOC_COL != null ? fallback.SVC_DOC_COL : fallback.DUE_DATE + 1,
+      INV_DOC: fallback.INV_DOC_COL != null ? fallback.INV_DOC_COL : fallback.DUE_DATE + 2,
+    });
+  }
+
+  // Fill missing from fallback
+  for (const k of Object.keys(fallback)) {
+    if (col[k] === undefined || col[k] < 0) col[k] = fallback[k];
+  }
+
+  // Output columns: ถ้าเจอ DUE_DATE จริง → ต่อหลัง DUE_DATE
+  //                 ถ้าไม่เจอ → ใช้ CONFIG.COL.SVC_DOC_COL/INV_DOC_COL ที่ตั้งไว้
+  const dueDateFound = col.DUE_DATE !== fallback.DUE_DATE;
+  if (dueDateFound) {
+    col.SVC_DOC = col.DUE_DATE + 1;
+    col.INV_DOC = col.DUE_DATE + 2;
+  } else {
+    col.SVC_DOC = fallback.SVC_DOC_COL != null ? fallback.SVC_DOC_COL : col.DUE_DATE + 1;
+    col.INV_DOC = fallback.INV_DOC_COL != null ? fallback.INV_DOC_COL : col.DUE_DATE + 2;
+  }
+
+  Logger.log(`detectSumColumns_ [${sheet.getName()}]: INV=${col.INV} CONTRACT_DATE=${col.CONTRACT_DATE} CONTRACT_AMT=${col.CONTRACT_AMT} INSTALLMENT_N=${col.INSTALLMENT_N} INSTALLMENT_AMT=${col.INSTALLMENT_AMT} PAY_DAY=${col.PAY_DAY} AR_BEGIN=${col.AR_BEGIN} DUE_DATE=${col.DUE_DATE} INV_DOC=${col.INV_DOC}`);
+  return col;
+}
+
 /**
  * เขียนค่ากลับลง Sheet (1-indexed row, col)
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet

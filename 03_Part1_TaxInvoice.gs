@@ -75,8 +75,6 @@ function runPart1_TaxInvoice(sheetName) {
     // layout RE04+ ไม่มีคอลัมน์ประเภทการชำระ → ใช้เดือนครบกำหนดเป็น label
     // กัน reference ชนกันข้ามเดือนของสัญญาเดียวกัน
     const installment = RC.INST_TYPE >= 0 ? String(row[RC.INST_TYPE] || '').trim() : '';
-    const refLabel = installment
-      || (dueDate ? Utilities.formatDate(dueDate, 'Asia/Bangkok', 'MM.yyyy') : 'X');
     const desc = buildReceiptDescription_(installment, invCode);
 
     writeReceiptCell_(sheet, i, RC.PEAK_DOC, CONFIG.PROCESSING_MARKER);
@@ -418,15 +416,15 @@ function debugPart1Row() {
   const sheet = getSheetByNameSmart_(ss, sheetName);
   if (!sheet) { Logger.log('ไม่พบ sheet: ' + sheetName); return; }
 
+  const RC = detectReceiptColumns_(sheet);
   const data = getReceiptData_(sheet);
   const row = data[dataRowIndex];
   if (!row) { Logger.log('ไม่พบ row index: ' + dataRowIndex); return; }
 
-  const RC = detectReceiptColumns_(sheet);
   const invCode = String(row[RC.INV] || '').trim();
   const amt     = parseAmount(row[RC.AMT]);
   const payDate = toDate(row[RC.PAY_DATE]);
-  const inst    = RC.INST_TYPE >= 0 ? String(row[RC.INST_TYPE] || '').trim() : '';
+  const inst    = String(row[RC.INST_TYPE] || '').trim();
   const desc    = buildReceiptDescription_(inst, invCode);
 
   Logger.log(`▼ Row ${dataRowIndex}: invCode=${invCode}, amt=${amt}, payDate=${payDate}`);
@@ -464,22 +462,23 @@ function runPart1_ServiceFee(sheetName) {
 
   toast(`⏳ Part 1 ค่าบริการ — ${sheetName}`, 'FinFin');
 
-  const svcDocCol = ensureSvcFeeHeader_(sheet);
+  const SC = detectSumColumns_(sheet);
+  const svcDocCol = ensureSvcFeeHeader_(sheet, SC);
   const data = getSumData_(sheet);
 
   const eligible = [];
   for (let i = 0; i < data.length; i++) {
     const row = data[i];
-    const invCode = String(row[CONFIG.COL.INV] || '').trim();
+    const invCode = String(row[SC.INV] || '').trim();
     if (!invCode) continue;
 
-    const feeAmt = parseAmount(row[CONFIG.COL.SERVICE_FEE]);
+    const feeAmt = parseAmount(row[SC.SERVICE_FEE]);
     if (feeAmt <= 0) continue;
 
     const existingDoc = String(row[svcDocCol] || '').trim();
     if (existingDoc && existingDoc !== CONFIG.PROCESSING_MARKER) continue;
 
-    const feeDate = toDate(row[CONFIG.COL.CONTRACT_DATE]) || toDate(row[CONFIG.COL.DUE_DATE]);
+    const feeDate = toDate(row[SC.CONTRACT_DATE]) || toDate(row[SC.DUE_DATE]);
     if (!feeDate) {
       logEntry('Part1-SVC', sheetName, i, invCode, 'SKIP', '', 'ไม่มีวันที่อ้างอิง');
       continue;
@@ -552,9 +551,11 @@ function runPart1_ServiceFee(sheetName) {
   return summary;
 }
 
-function ensureSvcFeeHeader_(sheet) {
+function ensureSvcFeeHeader_(sheet, sc) {
   const headerRow = CONFIG.SUM_HEADER_ROW;
-  const targetCol = CONFIG.COL.SVC_DOC_COL;
+  const targetCol = (sc && sc.SVC_DOC != null && sc.SVC_DOC >= 0)
+    ? sc.SVC_DOC
+    : CONFIG.COL.SVC_DOC_COL;
   const existing = sheet.getRange(headerRow, targetCol + 1).getValue();
   if (!existing) sheet.getRange(headerRow, targetCol + 1).setValue('เลขที่ PEAK (ค่าบริการ)');
   return targetCol;

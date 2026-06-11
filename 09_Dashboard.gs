@@ -74,10 +74,11 @@ function countPart1Tax_(sheet) {
 
 function countPart1Svc_(sheet) {
   if (!sheet) return notFound_();
-  const svcDocCol = CONFIG.COL.SVC_DOC_COL;
+  const sc = detectSumColumns_(sheet);
+  const svcDocCol = sc.SVC_DOC;
   let done = 0, missing = 0;
   for (const row of getSheetRange_(sheet, CONFIG.SUM_HEADER_ROW)) {
-    if (parseAmount(row[CONFIG.COL.SERVICE_FEE]) <= 0) continue;
+    if (parseAmount(row[sc.SERVICE_FEE]) <= 0) continue;
     const doc = String(row[svcDocCol] || '').trim();
     if (doc && doc !== CONFIG.PROCESSING_MARKER) done++;
     else missing++;
@@ -87,12 +88,13 @@ function countPart1Svc_(sheet) {
 
 function countPart2Inv_(sheet) {
   if (!sheet) return notFound_();
-  const invDocCol = CONFIG.COL.INV_DOC_COL;
+  const sc = detectSumColumns_(sheet);
+  const invDocCol = sc.INV_DOC;
   let done = 0, missing = 0;
   for (const row of getSheetRange_(sheet, CONFIG.SUM_HEADER_ROW)) {
-    const invCode = String(row[CONFIG.COL.INV] || '').trim();
+    const invCode = String(row[sc.INV] || '').trim();
     if (!invCode) continue;
-    if (!toDate(row[CONFIG.COL.CONTRACT_DATE])) continue;
+    if (!toDate(row[sc.CONTRACT_DATE])) continue;
     const doc = String(row[invDocCol] || '').trim();
     if (doc && doc !== CONFIG.PROCESSING_MARKER) done++;
     else missing++;

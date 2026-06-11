@@ -222,12 +222,13 @@ function buildInvNameMap_() {
     const ss    = SpreadsheetApp.openById(getSpreadsheetId());
     const sheet = getSheetByNameSmart_(ss, getCurrentSumSheetName());
     if (!sheet) return {};
+    const sc   = detectSumColumns_(sheet);
     const data = getSumData_(sheet);
     const map  = {};
     for (const row of data) {
-      const inv   = String(row[CONFIG.COL.INV]   || '').trim();
-      const title = String(row[CONFIG.COL.TITLE] || '').trim();
-      const name  = String(row[CONFIG.COL.NAME]  || '').trim();
+      const inv   = String(row[sc.INV]   || '').trim();
+      const title = String(row[sc.TITLE] || '').trim();
+      const name  = String(row[sc.NAME]  || '').trim();
       if (!inv) continue;
       const full = (title && !name.startsWith(title)) ? title + name : name;
       if (full) map[inv] = full;

@@ -25,7 +25,9 @@ function runPart2_Invoice(sheetName) {
 
   toast(`⏳ Part 2 ใบแจ้งหนี้ — ${sheetName}`, 'FinFin');
 
-  const invDocCol = ensureInvoiceDocHeader_(sheet);
+  // Auto-detect คอลัมน์จาก header — รองรับ layout ที่เปลี่ยนไป (Sum04+ เพิ่ม cols)
+  const SC = detectSumColumns_(sheet);
+  const invDocCol = ensureInvoiceDocHeader_(sheet, SC);
   const data = getSumData_(sheet);
 
   // ── ตรวจสัญญาที่ Part 1 ออก Tax Invoice ไปแล้ว ───────────────────────────────
@@ -44,10 +46,10 @@ function runPart2_Invoice(sheetName) {
     if (guard.expired()) { stoppedEarly = true; break; }
     const row = data[i];
 
-    const invCode = String(row[CONFIG.COL.INV] || '').trim();
+    const invCode = String(row[SC.INV] || '').trim();
     if (!invCode) continue;
 
-    const contractDate = toDate(row[CONFIG.COL.CONTRACT_DATE]);
+    const contractDate = toDate(row[SC.CONTRACT_DATE]);
     if (!contractDate) continue;
 
     // ── Skip: Part 1 ออก Tax Invoice สำหรับสัญญานี้แล้ว ─────────────────────────
@@ -66,10 +68,10 @@ function runPart2_Invoice(sheetName) {
       continue;
     }
 
-    const contractAmt     = parseAmount(row[CONFIG.COL.CONTRACT_AMT]);
-    const numInstallments = parseInt(row[CONFIG.COL.INSTALLMENT_N]) || 0;
-    const installmentAmt  = parseAmount(row[CONFIG.COL.INSTALLMENT_AMT]);
-    const paymentDay      = parseInt(row[CONFIG.COL.PAY_DAY]) || 1;
+    const contractAmt     = parseAmount(row[SC.CONTRACT_AMT]);
+    const numInstallments = parseInt(row[SC.INSTALLMENT_N]) || 0;
+    const installmentAmt  = parseAmount(row[SC.INSTALLMENT_AMT]);
+    const paymentDay      = parseInt(row[SC.PAY_DAY]) || 1;
 
     if (!contractAmt || !numInstallments || !installmentAmt) {
       logEntry('Part2', sheetName, i, invCode, 'SKIP', '', 'ข้อมูลยอด/จำนวนงวด/ค่างวดไม่ครบ');
@@ -77,16 +79,16 @@ function runPart2_Invoice(sheetName) {
       continue;
     }
 
-    const title = String(row[CONFIG.COL.TITLE] || '').trim();
-    const rawName = String(row[CONFIG.COL.NAME] || '').trim();
+    const title = String(row[SC.TITLE] || '').trim();
+    const rawName = String(row[SC.NAME] || '').trim();
     const customerName = rawName.startsWith(title) ? rawName : (title + rawName).trim();
-    const idCard  = String(row[CONFIG.COL.ID_CARD]  || '').trim();
-    const address = String(row[CONFIG.COL.ADDRESS]   || '').trim();
+    const idCard  = String(row[SC.ID_CARD]  || '').trim();
+    const address = String(row[SC.ADDRESS]   || '').trim();
 
     // ── AR Opening Balance — ยกยอดสัญญาที่ชำระมาแล้วบางส่วน ─────────────────────
     // ถ้า AR_BEGIN มีค่า และ < contractAmt → ออก Invoice เฉพาะยอดค้างที่เหลือ
     // ถ้า AR_BEGIN = 0 หรือว่าง → สัญญาใหม่ ออกปกติเต็มสัญญา
-    const arBegin    = parseAmount(row[CONFIG.COL.AR_BEGIN]);
+    const arBegin    = parseAmount(row[SC.AR_BEGIN]);
     const isCarryOver = arBegin > 0 && arBegin < contractAmt * 0.99;
 
     let effDown, effInstN, effAmt, effDates, effIssueDate;
@@ -95,7 +97,14 @@ function runPart2_Invoice(sheetName) {
       effInstN     = installmentAmt > 0 ? Math.max(1, Math.round(arBegin / installmentAmt)) : 1;
       effAmt       = Math.min(arBegin, contractAmt);
       effIssueDate = new Date();  // วันที่ออก Invoice = วันนี้ (ไม่ใช้ contractDate ในอดีต)
-      const firstDue = toDate(row[CONFIG.COL.DUE_DATE]) || nextDueDate_(parseInt(row[CONFIG.COL.PAY_DAY]) || 1);
+      // firstDue ต้อง >= วันนี้ — ถ้า due date ในชีตเก่า ให้ดันไปเดือนถัดไป
+      let firstDue = toDate(row[SC.DUE_DATE]) || nextDueDate_(paymentDay);
+      while (firstDue && compareDates(firstDue, effIssueDate) < 0) {
+        let m = firstDue.getMonth() + 1, y = firstDue.getFullYear();
+        if (m > 11) { m = 0; y++; }
+        const d = Math.min(firstDue.getDate(), new Date(y, m + 1, 0).getDate());
+        firstDue = new Date(y, m, d, 12, 0, 0);
+      }
       effDates     = buildRemainingDueDates_(firstDue, effInstN);
       logEntry('Part2', sheetName, i, invCode, 'INFO', '',
         `ยกยอด AR_BEGIN=${arBegin} → Invoice ${effInstN} งวด × ${installmentAmt}`);
@@ -231,9 +240,12 @@ function buildInvoiceAllInOnePayload(
 
 // ─── Sheet helpers (Sum-specific) ─────────────────────────────────────────────
 
-function ensureInvoiceDocHeader_(sheet) {
+function ensureInvoiceDocHeader_(sheet, sc) {
   const headerRow = CONFIG.SUM_HEADER_ROW;
-  const targetCol = CONFIG.COL.INV_DOC_COL;
+  // ใช้ INV_DOC ที่ detect แล้ว — fallback เป็น CONFIG.COL.INV_DOC_COL
+  const targetCol = (sc && sc.INV_DOC != null && sc.INV_DOC >= 0)
+    ? sc.INV_DOC
+    : CONFIG.COL.INV_DOC_COL;
   const currentHeader = sheet.getRange(headerRow, targetCol + 1).getValue();
   if (!currentHeader) {
     sheet.getRange(headerRow, targetCol + 1).setValue('เลขที่ใบแจ้งหนี้ PEAK');
@@ -313,11 +325,10 @@ function buildPart1CoveredSet_(ss, sumSheetName) {
     try {
       const rSheet = ss.getSheetByName(receiptName);
       if (!rSheet) continue;
+      const rc = detectReceiptColumns_(rSheet);
       const startRow = CONFIG.RECEIPT_HEADER_ROW + 1;
       const lastRow = rSheet.getLastRow();
       if (lastRow < startRow) continue;
-      const rc = (typeof detectReceiptColumns_ === 'function')
-        ? detectReceiptColumns_(rSheet) : CONFIG.RECEIPT_COL;
       const numCols = Math.max(rc.PEAK_DOC, rc.INV) + 1;
       const data = rSheet.getRange(startRow, 1, lastRow - startRow + 1, numCols).getValues();
       for (const row of data) {
