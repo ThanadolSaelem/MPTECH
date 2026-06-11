@@ -97,13 +97,10 @@ function runPart2_Invoice(sheetName) {
       effInstN     = installmentAmt > 0 ? Math.max(1, Math.round(arBegin / installmentAmt)) : 1;
       effAmt       = Math.min(arBegin, contractAmt);
       effIssueDate = new Date();  // วันที่ออก Invoice = วันนี้ (ไม่ใช้ contractDate ในอดีต)
-      // firstDue ต้อง >= วันนี้ — ถ้า due date ในชีตเก่า ให้ดันไปเดือนถัดไป
+      // carry-over = ยอดค้างที่ถึงกำหนดมาแล้ว → ครบกำหนดทันที (dueDate = วันออกใบ)
       let firstDue = toDate(row[SC.DUE_DATE]) || nextDueDate_(paymentDay);
-      while (firstDue && compareDates(firstDue, effIssueDate) < 0) {
-        let m = firstDue.getMonth() + 1, y = firstDue.getFullYear();
-        if (m > 11) { m = 0; y++; }
-        const d = Math.min(firstDue.getDate(), new Date(y, m + 1, 0).getDate());
-        firstDue = new Date(y, m, d, 12, 0, 0);
+      if (firstDue && compareDates(firstDue, effIssueDate) < 0) {
+        firstDue = new Date(effIssueDate.getTime());
       }
       effDates     = buildRemainingDueDates_(firstDue, effInstN);
       logEntry('Part2', sheetName, i, invCode, 'INFO', '',
