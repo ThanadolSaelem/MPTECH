@@ -424,7 +424,7 @@ function debugPart1Row() {
   const invCode = String(row[RC.INV] || '').trim();
   const amt     = parseAmount(row[RC.AMT]);
   const payDate = toDate(row[RC.PAY_DATE]);
-  const inst    = String(row[RC.INST_TYPE] || '').trim();
+  const inst    = RC.INST_TYPE >= 0 ? String(row[RC.INST_TYPE] || '').trim() : '';
   const desc    = buildReceiptDescription_(inst, invCode);
 
   Logger.log(`▼ Row ${dataRowIndex}: invCode=${invCode}, amt=${amt}, payDate=${payDate}`);

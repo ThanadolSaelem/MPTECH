@@ -267,6 +267,7 @@ function runSyncContacts(sheetName) {
 
   const rc = detectReceiptColumns_(sheet);
   const data = getReceiptData_(sheet);
+  const rc = detectReceiptColumns_(sheet);
   const codeNameMap = {};
   for (const row of data) {
     const code = String(row[rc.INV] || '').trim();
@@ -301,6 +302,7 @@ function clearBadPeakDocs(sheetName) {
 
   const rc = detectReceiptColumns_(sheet);
   const data = getReceiptData_(sheet);
+  const rc = detectReceiptColumns_(sheet);
   let cleared = 0;
 
   for (let i = 0; i < data.length; i++) {
