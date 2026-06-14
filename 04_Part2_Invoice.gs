@@ -341,3 +341,51 @@ function buildPart1CoveredSet_(ss, sumSheetName) {
   }
   return covered;
 }
+
+/**
+ * Dump รายการสัญญา carry-over (AR_BEGIN > 0 และ < contractAmt*0.99) ใน Sum sheet
+ * พร้อมพยายามกู้เลขใบแจ้งหนี้จาก PEAK ด้วย code = "{invCode}-CONT-INV"
+ *
+ * ใช้เมื่อ: ต้องการ list สัญญาที่ต้องไปยกเลิกใบใน PEAK manual
+ * Usage: dumpCarryOverPeakDocs_('Sum05.2026')
+ */
+function dumpCarryOverPeakDocs_(sheetName) {
+  sheetName = sheetName || getCurrentSumSheetName();
+  const ss = SpreadsheetApp.openById(getSpreadsheetId());
+  const sheet = getSheetByNameSmart_(ss, sheetName);
+  if (!sheet) throw new Error(`ไม่พบ Sheet "${sheetName}"`);
+
+  const SC = detectSumColumns_(sheet);
+  const data = getSumData_(sheet);
+
+  const rows = [];
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    const invCode = String(row[SC.INV] || '').trim();
+    if (!invCode) continue;
+    const contractAmt = parseAmount(row[SC.CONTRACT_AMT]);
+    const arBegin     = parseAmount(row[SC.AR_BEGIN]);
+    if (!(arBegin > 0 && arBegin < contractAmt * 0.99)) continue;
+    rows.push({ i, invCode, arBegin, contractAmt });
+  }
+
+  Logger.log(`▼ ${sheetName} — carry-over สัญญา: ${rows.length} รายการ`);
+  Logger.log('─'.repeat(80));
+
+  let recovered = 0;
+  for (const r of rows) {
+    const codeRef = buildReference(r.invCode, 'CONT', 'INV');
+    let peakDoc = tryRecoverPeakDoc_('/invoices', codeRef);
+    // PEAK อาจตัดเลขนำหน้าออก ถ้า invCode ยาว — ลอง substring(1) ด้วย
+    if (!peakDoc && r.invCode.length >= 10) {
+      const altCode = buildReference(r.invCode.substring(1), 'CONT', 'INV');
+      peakDoc = tryRecoverPeakDoc_('/invoices', altCode);
+    }
+    if (peakDoc) recovered++;
+    Logger.log(`[${r.invCode}] AR_BEGIN=${r.arBegin}  PEAK=${peakDoc || 'NOT_FOUND'}`);
+  }
+
+  Logger.log('─'.repeat(80));
+  Logger.log(`รวม: ${rows.length} carry-over | กู้เลขจาก PEAK ได้: ${recovered}/${rows.length}`);
+  return rows;
+}
