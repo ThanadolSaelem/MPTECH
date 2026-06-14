@@ -54,21 +54,35 @@ function probeEditInvoice_(invoiceCode, newDueDateOverride) {
   Logger.log(`\n▼ จะแก้ dueDate ของ ${invoiceCode}`);
   Logger.log(`   id=${doc.id}  issuedDate=${doc.issuedDate}  เดิม dueDate=${doc.dueDate}  → ใหม่=${newDueDate}`);
 
+  // product dueDate (แก้ทุก product ในใบด้วย)
+  const products = (doc.products || []).map(p => Object.assign({}, p, { dueDate: newDueDate }));
+
   const attempts = [
+    // --- single object (ไม่ใช่ array) ---
     {
-      label: 'A: POST /invoices/edit, array, {id,code,dueDate}',
+      label: 'D: single obj, transactionCode+transactionId',
       path:  '/invoices/edit',
-      body:  { PeakInvoices: { invoices: [{ id: doc.id, code: invoiceCode, dueDate: newDueDate }] } },
+      body:  { PeakInvoices: { invoices: { transactionId: doc.id, transactionCode: invoiceCode, dueDate: newDueDate } } },
     },
     {
-      label: 'B: POST /invoices/edit, single obj',
+      label: 'E: single obj, id only (UUID)',
       path:  '/invoices/edit',
-      body:  { PeakInvoices: { invoices: { id: doc.id, code: invoiceCode, dueDate: newDueDate } } },
+      body:  { PeakInvoices: { invoices: { id: doc.id, dueDate: newDueDate } } },
     },
     {
-      label: 'C: POST /invoices/edit, full doc + updated dueDate (array)',
+      label: 'F: single obj, full doc + updated dueDate + products',
       path:  '/invoices/edit',
-      body:  { PeakInvoices: { invoices: [Object.assign({}, doc, { dueDate: newDueDate })] } },
+      body:  { PeakInvoices: { invoices: Object.assign({}, doc, { dueDate: newDueDate, products }) } },
+    },
+    {
+      label: 'G: single obj, id+code+dueDate+products',
+      path:  '/invoices/edit',
+      body:  { PeakInvoices: { invoices: { id: doc.id, code: invoiceCode, dueDate: newDueDate, products } } },
+    },
+    {
+      label: 'H: POST /invoices (upsert), single obj full doc',
+      path:  '/invoices',
+      body:  { PeakInvoices: { invoices: [Object.assign({}, doc, { dueDate: newDueDate, products })] } },
     },
   ];
 
