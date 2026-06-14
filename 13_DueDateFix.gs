@@ -27,12 +27,15 @@ function probeGetInvoice_(invoiceCode) {
       Logger.log(`Items count: ${items.length}`);
       const match = items.find(d => d.code === invoiceCode);
       if (match) {
-        Logger.log(`✓ exact match: ${JSON.stringify(match).slice(0, 800)}`);
+        // Log ทุก key เพื่อเห็น invoiceCode / peakCode ฯลฯ
+        Logger.log(`✓ exact match keys: ${Object.keys(match).join(', ')}`);
+        Logger.log(`✓ full: ${JSON.stringify(match)}`);
         return match;
       }
-      Logger.log(`❌ ไม่มี exact code match — sample[0]: ${JSON.stringify(items[0] || {}).slice(0, 400)}`);
+      Logger.log(`❌ ไม่มี exact code match — sample[0] keys: ${Object.keys(items[0] || {}).join(', ')}`);
     } else {
-      Logger.log(`Single object: ${JSON.stringify(res).slice(0, 800)}`);
+      Logger.log(`Single object keys: ${Object.keys(res || {}).join(', ')}`);
+      Logger.log(`Full: ${JSON.stringify(res)}`);
     }
   } catch (e) {
     Logger.log(`GET error: ${e.message}`);
@@ -83,6 +86,28 @@ function probeEditInvoice_(invoiceCode, newDueDateOverride) {
       label: 'H: POST /invoices (upsert), single obj full doc',
       path:  '/invoices',
       body:  { PeakInvoices: { invoices: [Object.assign({}, doc, { dueDate: newDueDate, products })] } },
+    },
+    // --- ใช้ invoiceCode (PEAK-assigned) แทน code ของเรา ---
+    {
+      label: 'I: /invoices/edit, single, invoiceCode field',
+      path:  '/invoices/edit',
+      body:  { PeakInvoices: { invoices: { invoiceCode: doc.invoiceCode, id: doc.id, dueDate: newDueDate } } },
+    },
+    // --- H แต่ fix contact format ---
+    {
+      label: 'J: POST /invoices (upsert) + contact object',
+      path:  '/invoices',
+      body:  { PeakInvoices: { invoices: [Object.assign({}, doc, {
+        dueDate: newDueDate,
+        products,
+        contact: { id: doc.contactId, code: doc.contactCode },
+      })] } },
+    },
+    // --- wrapper key singular 'invoice' (ไม่ใช่ 'invoices') ---
+    {
+      label: 'K: /invoices/edit, singular wrapper key "invoice"',
+      path:  '/invoices/edit',
+      body:  { PeakInvoices: { invoice: { id: doc.id, code: doc.code, dueDate: newDueDate } } },
     },
   ];
 
