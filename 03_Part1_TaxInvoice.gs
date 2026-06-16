@@ -83,12 +83,12 @@ function runPart1_TaxInvoice(sheetName) {
     const smemoveTaxRef = smemoveDoc.startsWith('IVF-') ? smemoveDoc : null;
 
     if (dueDate && compareDates(payDate, dueDate) < 0) {
-      const ref = smemoveTaxRef || buildReference(invCode, refLabel, 'TAX');
+      const ref = smemoveTaxRef || buildReference(invCode, installment, 'TAX');
       rawA.push({ rowIndex: i, invCode, payDate, amt, desc, ref });
     } else {
       const taxDate = dueDate || payDate;
-      const refTax = smemoveTaxRef || buildReference(invCode, refLabel, 'TAX');
-      const refRec = buildReference(invCode, refLabel, 'REC');
+      const refTax = smemoveTaxRef || buildReference(invCode, installment, 'TAX');
+      const refRec = buildReference(invCode, installment, 'REC');
       rawBtax.push({ rowIndex: i, invCode, taxDate, amt, desc, ref: refTax });
       rawBrec.push({ rowIndex: i, invCode, payDate, amt, desc, ref: refRec });
     }
