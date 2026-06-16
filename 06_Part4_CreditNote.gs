@@ -4,10 +4,8 @@
  * Business Rules:
  *   - วัตถุประสงค์: เคลียร์ใบแจ้งหนี้ที่ค้างอยู่ใน PEAK เมื่อลูกค้าคืนเครื่อง
  *   - ไม่ใช่การคืนเงินให้ลูกค้า
- *   - วันที่ใบลดหนี้ = วันที่รับคืน (Col B ไฟล์รับคืน)
- *   - อ้างอิง INV จาก Col D (เลขที่สัญญา)
- *   - ยอดใบลดหนี้ = ยอดทำสัญญา - รวมเงินที่จ่ายมาแล้ว
- *     (= งวดที่ค้างอยู่ที่ต้องเคลียร์)
+ *   - วันที่ใบลดหนี้ = วันที่รับคืน (Sum sheet คอลัมน์ X = RETURN_DATE)
+ *   - ยอดใบลดหนี้ = คอลัมน์ T (CLOSEOUT = คืนเครื่อง) ยืนยันจากพี่นก 2026-06-10
  *
  * Business Rules เพิ่มเติม (ยืนยันจากพี่นก 2026-06-10):
  *   - ส่วนลดปิดยอด: ไม่ออกใบลดหนี้ — เป็นส่วนลดเงินสด บันทึกเป็นค่าใช้จ่าย
@@ -20,47 +18,31 @@
  *       ก่อนออก CN รายใบ — probe 2026-06-10 ยืนยัน: PEAK ignore filter param
  *       ทุกตัวใน GET /invoices จึงต้อง lookup ด้วย code ตรงๆ เท่านั้น
  *
- * Input: ไฟล์รับคืน (RETURN_SPREADSHEET_ID / RETURN_SHEET_NAME)
- *   - Date format: MM/DD/YYYY
- *   - ยอดเงินมี comma
- *   - ยังไม่มี col เลขที่ใบลดหนี้ → เพิ่ม Col Q อัตโนมัติ
+ * Input: Sum sheet (getCurrentSumSheetName())
+ *   - RETURN_DATE (X/23) ไม่ว่าง + CLOSEOUT (T/19) > 0
+ *   - ชื่อสินค้า (H/7) รูปแบบ "iPhone 15 #20959" → parseProductString_
  *
  * Output:
- *   - เขียนเลขที่ใบลดหนี้ → Col Q (index 16)
+ *   - เขียนเลขที่ใบลดหนี้ → คอลัมน์ที่เพิ่มอัตโนมัติหลัง AA (ensureCNDocHeader_)
  */
 
 // ─── Main Entry Point ─────────────────────────────────────────────────────────
 
-/**
- * รันออกใบลดหนี้จากไฟล์รับคืน
- */
-function runPart4_CreditNote() {
+function runPart4_CreditNote(sheetName) {
   preFlightChecks_();
-  let ss, sheet;
+  sheetName = sheetName || getCurrentSumSheetName();
 
-  // ─── เปิดไฟล์รับคืน ───────────────────────────────────────────────────────
-  try {
-    const returnId = CONFIG.RETURN_SPREADSHEET_ID;
-    if (!returnId || returnId === 'SPREADSHEET_ID_OF_RETURN_FILE') {
-      // ไม่ได้ระบุ ID แยก → ถือว่าอยู่ใน Spreadsheet เดียวกัน
-      ss = SpreadsheetApp.openById(getSpreadsheetId());
-    } else {
-      ss = SpreadsheetApp.openById(returnId);
-    }
-    sheet = ss.getSheetByName(CONFIG.RETURN_SHEET_NAME);
-    if (!sheet) throw new Error(`ไม่พบ Sheet "${CONFIG.RETURN_SHEET_NAME}"`);
-  } catch (e) {
-    throw new Error(`เปิดไฟล์รับคืนไม่ได้: ${e.message}`);
-  }
+  const ss = SpreadsheetApp.openById(getSpreadsheetId());
+  const sheet = getSheetByNameSmart_(ss, sheetName);
+  if (!sheet) throw new Error(`ไม่พบ Sum sheet "${sheetName}"`);
 
-  toast(`⏳ กำลังประมวลผล Part 4 ใบลดหนี้`, 'FinFin');
+  toast(`⏳ Part 4 ใบลดหนี้ — ${sheetName}`, 'FinFin');
 
-  // ─── เพิ่ม Header Col Q ถ้ายังไม่มี ──────────────────────────────────────
-  ensureReturnFileHeader_(sheet);
+  const SC = CONFIG.COL;
+  const cnDocCol = ensureCNDocHeader_(sheet);
+  const data = getSumData_(sheet);
 
-  const data = getSheetData(sheet);
   let countOk = 0, countSkip = 0, countError = 0, countTaxCn = 0;
-
   const guard = makeTimeGuard_(5);
   let stoppedEarly = false, quotaHit = false;
 
@@ -68,69 +50,54 @@ function runPart4_CreditNote() {
     if (guard.expired()) { stoppedEarly = true; break; }
     const row = data[i];
 
-    // ─── Guard ────────────────────────────────────────────────────────────
-    const invCode = String(row[CONFIG.RETURN_COL.INV] || '').trim();
+    // ─── Guard: ต้องมี INV และ RETURN_DATE ────────────────────────────────
+    const invCode = String(row[SC.INV] || '').trim();
     if (!invCode) continue;
 
-    // ─── Workflow filter: ออกใบลดหนี้เฉพาะ workflow ที่ระบุใน Config ──────
-    const workflow = String(row[CONFIG.RETURN_COL.WORKFLOW] || '').trim();
-    if (CONFIG.RETURN_WORKFLOW_ISSUE_CN && CONFIG.RETURN_WORKFLOW_ISSUE_CN.length > 0) {
-      if (!CONFIG.RETURN_WORKFLOW_ISSUE_CN.includes(workflow)) {
-        logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'SKIP', '', `workflow "${workflow}" ไม่อยู่ใน RETURN_WORKFLOW_ISSUE_CN — ข้าม`);
-        countSkip++;
-        continue;
-      }
+    const returnDateRaw = row[SC.RETURN_DATE];
+    if (!returnDateRaw) continue;
+
+    // ─── ยอดใบลดหนี้ (คอลัมน์ T = CLOSEOUT) ────────────────────────────
+    const creditAmt = parseAmount(row[SC.CLOSEOUT]);
+    if (creditAmt <= 0) {
+      logEntry('Part4', sheetName, i, invCode, 'SKIP', '', `CLOSEOUT = ${creditAmt} ≤ 0 — ข้าม`);
+      countSkip++;
+      continue;
     }
 
-    // ─── Idempotency ──────────────────────────────────────────────────────
-    const existingCN = String(row[CONFIG.RETURN_COL.CN_DOC] || '').trim();
+    // ─── Idempotency ──────────────────────────────────────────────────
+    const existingCN = String(row[cnDocCol] || '').trim();
     if (existingCN && existingCN !== CONFIG.PROCESSING_MARKER) {
       countSkip++;
       continue;
     }
 
-    // ─── Parse วันที่รับคืน (DD/MM/YYYY) ────────────────────────────────
-    const returnDateRaw = row[CONFIG.RETURN_COL.RETURN_DATE];
+    // ─── Parse วันที่รับคืน ──────────────────────────────────────────
     const returnDate = returnDateRaw instanceof Date
       ? returnDateRaw
       : parseMDYDate_(String(returnDateRaw || '').trim());
 
     if (!returnDate) {
-      Logger.log(`Part4 ERROR [${invCode}]: parse วันที่รับคืนไม่ได้: "${returnDateRaw}"`);
-      logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'ERROR', '', `parse วันที่รับคืนไม่ได้: "${returnDateRaw}"`);
+      logEntry('Part4', sheetName, i, invCode, 'ERROR', '', `parse วันที่รับคืนไม่ได้: "${returnDateRaw}"`);
       countError++;
       continue;
     }
 
-    // ─── คำนวณยอดใบลดหนี้ ────────────────────────────────────────────────
-    const contractAmt = parseAmount(row[CONFIG.RETURN_COL.CONTRACT_AMT]);
-    const paidAmt = parseAmount(row[CONFIG.RETURN_COL.PAID_AMT]);
-    const creditAmt = contractAmt - paidAmt;
-
-    if (creditAmt <= 0) {
-      logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'SKIP', '',
-        `ยอดใบลดหนี้ = ${creditAmt} (ปิดยอดแล้วหรือไม่ต้องออก)`);
-      countSkip++;
-      continue;
-    }
-
-    // ─── Build metadata ───────────────────────────────────────────────────
-    const productModel = String(row[CONFIG.RETURN_COL.MODEL] || '').trim();
-    const imei = String(row[CONFIG.RETURN_COL.IMEI] || '').trim();
-    const prefix = String(row[CONFIG.RETURN_COL.TITLE] || '').trim();
-    const nameOnly = String(row[CONFIG.RETURN_COL.NAME] || '').trim();
+    // ─── Build metadata ───────────────────────────────────────────────
+    const { model: productModel, serial: imei } = parseProductString_(row[SC.PRODUCT]);
+    const prefix = String(row[SC.TITLE] || '').trim();
+    const nameOnly = String(row[SC.NAME] || '').trim();
     const customerName = (prefix && !nameOnly.startsWith(prefix))
       ? `${prefix}${nameOnly}`.trim()
       : nameOnly;
-    const branch = String(row[CONFIG.RETURN_COL.BRANCH] || '').trim();
+    const branch = String(row[SC.BRANCH] || '').trim();
 
-    // ─── Mark PROCESSING ──────────────────────────────────────────────────
-    writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, CONFIG.PROCESSING_MARKER);
+    // ─── Mark PROCESSING ───────────────────────────────────────────────
+    writeSumCell_(sheet, i, cnDocCol, CONFIG.PROCESSING_MARKER);
 
     try {
       ensureContactsBatch_({ [invCode]: customerName });
 
-      // ต้องการ UUID ของใบแจ้งหนี้ที่ CN จะอ้างอิง (transactionId)
       const invoiceUUID = getInvoiceUUID_(invCode);
       if (!invoiceUUID) throw new Error(`ไม่พบ Invoice UUID สำหรับสัญญา ${invCode} — ตรวจว่า Part 2 ออกใบแจ้งหนี้แล้ว`);
 
@@ -145,25 +112,25 @@ function runPart4_CreditNote() {
       // หักใบกำกับภาษีค้างชำระของสัญญานี้ด้วย (พี่นก 2026-06-10)
       // ทำก่อนเขียน docNo — ถ้า quota กลางคัน เซลล์ยังเป็น PROCESSING
       // รอบหน้าจะ recover CN หลักจาก duplicate แล้วออก CN ที่เหลือต่อ
-      const taxCn = creditUnpaidTaxInvoices_(invCode, returnDate);
+      const taxCn = creditUnpaidTaxInvoices_(invCode, returnDate, sheetName);
       countTaxCn += taxCn.ok;
       if (taxCn.quota) {
-        writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, '');
+        writeSumCell_(sheet, i, cnDocCol, '');
         quotaHit = true;
         stoppedEarly = true;
         break;
       }
 
-      writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, docNo);
-      logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'SUCCESS', docNo,
+      writeSumCell_(sheet, i, cnDocCol, docNo);
+      logEntry('Part4', sheetName, i, invCode, 'SUCCESS', docNo,
         taxCn.ok > 0 ? `+CN ใบกำกับค้างชำระ ${taxCn.ok} ใบ` : '');
       countOk++;
 
     } catch (e) {
       const kind = classifyError_(e);
       if (kind === 'quota') {
-        writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, '');
-        logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
+        writeSumCell_(sheet, i, cnDocCol, '');
+        logEntry('Part4', sheetName, i, invCode, 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
         quotaHit = true;
         stoppedEarly = true;
         break;
@@ -173,36 +140,36 @@ function runPart4_CreditNote() {
         const recovered = tryRecoverPeakDoc_('/creditnotes', cnRef);
 
         // CN หลักมีอยู่แล้ว — ยังต้องหักใบกำกับภาษีค้างชำระให้ครบ (idempotent)
-        const taxCnDup = creditUnpaidTaxInvoices_(invCode, returnDate);
+        const taxCnDup = creditUnpaidTaxInvoices_(invCode, returnDate, sheetName);
         countTaxCn += taxCnDup.ok;
         if (taxCnDup.quota) {
-          writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, '');
+          writeSumCell_(sheet, i, cnDocCol, '');
           quotaHit = true;
           stoppedEarly = true;
           break;
         }
 
         if (recovered) {
-          writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, recovered);
-          logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'SUCCESS', recovered, 'กู้เลขเอกสารซ้ำ');
+          writeSumCell_(sheet, i, cnDocCol, recovered);
+          logEntry('Part4', sheetName, i, invCode, 'SUCCESS', recovered, 'กู้เลขเอกสารซ้ำ');
           countOk++;
         } else {
-          writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, CONFIG.DUPLICATE_MARKER);
-          logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'WARN', CONFIG.DUPLICATE_MARKER,
+          writeSumCell_(sheet, i, cnDocCol, CONFIG.DUPLICATE_MARKER);
+          logEntry('Part4', sheetName, i, invCode, 'WARN', CONFIG.DUPLICATE_MARKER,
             'ใบลดหนี้มีใน PEAK แล้ว — ค้นหาเลขที่ใน PEAK แล้วอัปเดตเซลล์ด้วยตนเอง');
         }
         continue;
       }
-      writeCell(sheet, i, CONFIG.RETURN_COL.CN_DOC, '');
+      writeSumCell_(sheet, i, cnDocCol, '');
       Logger.log(`Part4 ERROR [${invCode}]: ${e.message}\nStack: ${e.stack || '(no stack)'}`);
-      logEntry('Part4', CONFIG.RETURN_SHEET_NAME, i, invCode, 'ERROR', '', e.message);
+      logEntry('Part4', sheetName, i, invCode, 'ERROR', '', e.message);
       countError++;
     }
   }
 
   let tail = '';
   if (stoppedEarly) {
-    scheduleContinuation_('runPart4_CreditNote', '', countOk > 0);
+    scheduleContinuation_('runPart4_CreditNote', sheetName, countOk > 0);
     tail = quotaHit
       ? ' ⏸️ หยุดชั่วคราว (โควตา) — ทำต่ออัตโนมัติใน 15 นาที'
       : ' ⏸️ หยุดกันหมดเวลา — ทำต่ออัตโนมัติใน 15 นาที';
@@ -267,7 +234,7 @@ function getInvoiceUUID_(invCode) {
   }
 }
 
-// ─── ใบลดหนี้ใบกำกับภาษีค้างชำระ (พี่นก 2026-06-10) ─────────────────────────────
+// ─── ใบลดหนี้ใบกำกับภาษีค้างชำระ (พี่นก 2026-06-10) ──────────────────────────────
 
 /**
  * หาใบกำกับภาษีค้างชำระของสัญญาจากชีต Receipt/RE ทุกเดือน
@@ -308,7 +275,7 @@ function findUnpaidTaxInvoiceCodes_(invCode) {
  * - เจอ quota → หยุดและคืน quota:true ให้ runner หลักหยุดทั้ง run (ไม่ throw)
  * @returns {{ok:number, skip:number, fail:number, quota:boolean}}
  */
-function creditUnpaidTaxInvoices_(invCode, returnDate) {
+function creditUnpaidTaxInvoices_(invCode, returnDate, sheetName) {
   const result = { ok: 0, skip: 0, fail: 0, quota: false };
   const unpaid = findUnpaidTaxInvoiceCodes_(invCode);
   for (const u of unpaid) {
@@ -318,14 +285,14 @@ function creditUnpaidTaxInvoices_(invCode, returnDate) {
       const list = Array.isArray(raw) ? raw : [raw];
       const doc = list.find(d => d && d.code === u.code);
       if (!doc) {
-        logEntry('Part4-TAXCN', CONFIG.RETURN_SHEET_NAME, -1, invCode, 'SKIP', '',
+        logEntry('Part4-TAXCN', sheetName, -1, invCode, 'SKIP', '',
           `ไม่พบใบกำกับภาษี ${u.code} ใน PEAK (อ้างอิง ${u.sheet}) — อาจยังไม่ได้สร้าง`);
         result.skip++;
         continue;
       }
       const remain = Number(doc.remainAmount || 0);
       if (remain <= 0) {
-        logEntry('Part4-TAXCN', CONFIG.RETURN_SHEET_NAME, -1, invCode, 'SKIP', '',
+        logEntry('Part4-TAXCN', sheetName, -1, invCode, 'SKIP', '',
           `${u.code} ไม่มียอดค้างใน PEAK (remainAmount=0) — มีใบเสร็จตัดไปแล้ว ตรวจว่าใบเสร็จนั้นถูกต้องไหม`);
         result.skip++;
         continue;
@@ -348,31 +315,53 @@ function creditUnpaidTaxInvoices_(invCode, returnDate) {
       const cnRes = callPeakAPI('post', '/creditnotes', { PeakCreditNotes: { creditNotes: [payload] } });
       const cn = (cnRes.PeakCreditNotes && cnRes.PeakCreditNotes.creditNotes && cnRes.PeakCreditNotes.creditNotes[0]) || cnRes;
       const docNo = cn.creditNoteCode || cn.code || '';
-      logEntry('Part4-TAXCN', CONFIG.RETURN_SHEET_NAME, -1, invCode, 'SUCCESS', docNo,
+      logEntry('Part4-TAXCN', sheetName, -1, invCode, 'SUCCESS', docNo,
         `หัก ${u.code} ยอดค้าง ${remain}`);
       result.ok++;
     } catch (e) {
       const kind = classifyError_(e);
       if (kind === 'quota') {
-        logEntry('Part4-TAXCN', CONFIG.RETURN_SHEET_NAME, -1, invCode, 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
+        logEntry('Part4-TAXCN', sheetName, -1, invCode, 'WARN', '', `หยุดชั่วคราว (quota): ${e.message}`);
         result.quota = true;
         break;
       }
       if (kind === 'duplicate') {
         const recovered = tryRecoverPeakDoc_('/creditnotes', `${u.code}-CN`);
-        logEntry('Part4-TAXCN', CONFIG.RETURN_SHEET_NAME, -1, invCode,
+        logEntry('Part4-TAXCN', sheetName, -1, invCode,
           'SUCCESS', recovered || '[IN-PEAK]', `CN ของ ${u.code} มีอยู่แล้ว`);
         result.ok++;
         continue;
       }
-      logEntry('Part4-TAXCN', CONFIG.RETURN_SHEET_NAME, -1, invCode, 'ERROR', '', `${u.code}: ${e.message}`);
+      logEntry('Part4-TAXCN', sheetName, -1, invCode, 'ERROR', '', `${u.code}: ${e.message}`);
       result.fail++;
     }
   }
   return result;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function ensureCNDocHeader_(sheet) {
+  const CN_DOC_LABEL = 'เลขที่ใบลดหนี้';
+  const headerRow = CONFIG.SUM_HEADER_ROW;
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(headerRow, 1, 1, lastCol).getValues()[0];
+  const existing = headers.findIndex(h => String(h).trim() === CN_DOC_LABEL);
+  if (existing >= 0) return existing;
+  let lastUsed = lastCol - 1;
+  for (let i = headers.length - 1; i >= 0; i--) {
+    if (String(headers[i] || '').trim()) { lastUsed = i; break; }
+  }
+  const newCol = lastUsed + 1;
+  sheet.getRange(headerRow, newCol + 1).setValue(CN_DOC_LABEL);
+  return newCol;
+}
+
+function parseProductString_(productStr) {
+  const m = String(productStr || '').match(/^(.*?)\s*#(\S+)\s*$/);
+  if (m) return { model: m[1].trim(), serial: m[2].trim() };
+  return { model: String(productStr || '').trim(), serial: '' };
+}
 
 /**
  * แปลง "DD/MM/YYYY" (Thai format) → Date object
