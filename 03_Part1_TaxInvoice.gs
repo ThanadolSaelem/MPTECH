@@ -309,14 +309,14 @@ function buildAllinonePayload(invCode, contactUuid, payDate, amount, desc, pmtUu
     dueDate:      formatDateForAPI(payDate),
     contact:      { id: contactUuid, code: String(invCode) },
     istaxInvoice: 1,
-    taxStatus:    1,  // 1=รวมภาษี: ยอดที่จ่ายคือ total รวม VAT แล้ว
+    taxStatus:    1,
     remark:       desc,
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
       description: desc,
       quantity:    1,
       price:       amount,
-      vatType:     CONFIG.VAT_TYPE_7,
+      vatType:     CONFIG.VAT_TYPE_NONE,
     }],
     paidPayments: {
       paymentDate: formatDateForAPI(payDate),
@@ -357,7 +357,7 @@ function buildReceiptOnlyPayload(invCode, contactUuid, payDate, amount, desc, pm
       description: desc,
       quantity:    1,
       price:       amount,
-      vatType:     CONFIG.VAT_TYPE_7,
+      vatType:     CONFIG.VAT_TYPE_NONE,
     }],
     paidPayments: {
       paymentDate: formatDateForAPI(payDate),
