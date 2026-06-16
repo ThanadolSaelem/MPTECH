@@ -228,8 +228,7 @@ function buildInvoiceAllInOnePayload(
     issuedDate:   formatDateForAPI(fallbackDate),
     dueDate:      formatDateForAPI(dueDates[dueDates.length - 1] || fallbackDate),
     contact:      { id: contactUuid, code: String(invCode), name: customerName },
-    istaxInvoice: 1,
-    taxStatus:    1,
+    istaxInvoice: 0,
     remark,
     products,
   };

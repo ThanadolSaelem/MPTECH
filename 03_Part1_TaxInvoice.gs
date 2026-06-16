@@ -83,12 +83,12 @@ function runPart1_TaxInvoice(sheetName) {
     const smemoveTaxRef = smemoveDoc.startsWith('IVF-') ? smemoveDoc : null;
 
     if (dueDate && compareDates(payDate, dueDate) < 0) {
-      const ref = smemoveTaxRef || buildReference(invCode, refLabel, 'TAX');
+      const ref = smemoveTaxRef || buildReference(invCode, installment, 'TAX');
       rawA.push({ rowIndex: i, invCode, payDate, amt, desc, ref });
     } else {
       const taxDate = dueDate || payDate;
-      const refTax = smemoveTaxRef || buildReference(invCode, refLabel, 'TAX');
-      const refRec = buildReference(invCode, refLabel, 'REC');
+      const refTax = smemoveTaxRef || buildReference(invCode, installment, 'TAX');
+      const refRec = buildReference(invCode, installment, 'REC');
       rawBtax.push({ rowIndex: i, invCode, taxDate, amt, desc, ref: refTax });
       rawBrec.push({ rowIndex: i, invCode, payDate, amt, desc, ref: refRec });
     }
@@ -309,14 +309,14 @@ function buildAllinonePayload(invCode, contactUuid, payDate, amount, desc, pmtUu
     dueDate:      formatDateForAPI(payDate),
     contact:      { id: contactUuid, code: String(invCode) },
     istaxInvoice: 1,
-    taxStatus:    1,  // 1=รวมภาษี: ยอดที่จ่ายคือ total รวม VAT แล้ว
+    taxStatus:    1,
     remark:       desc,
     products: [{
       accountCode: CONFIG.ACCOUNT_CODE_SALES,
       description: desc,
       quantity:    1,
       price:       amount,
-      vatType:     CONFIG.VAT_TYPE_7,
+      vatType:     CONFIG.VAT_TYPE_NONE,
     }],
     paidPayments: {
       paymentDate: formatDateForAPI(payDate),
@@ -357,7 +357,7 @@ function buildReceiptOnlyPayload(invCode, contactUuid, payDate, amount, desc, pm
       description: desc,
       quantity:    1,
       price:       amount,
-      vatType:     CONFIG.VAT_TYPE_7,
+      vatType:     CONFIG.VAT_TYPE_NONE,
     }],
     paidPayments: {
       paymentDate: formatDateForAPI(payDate),
