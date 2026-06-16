@@ -8,13 +8,33 @@
  *   - ไฟล์รับคืน       (Device returns → Credit Note)
  */
 
-// ─── PEAK Credentials (กรอกหลังได้รับจาก PEAK) ─────────────────────
+// ─── Environment Switch ──────────────────────────────────────────────
+// เปลี่ยน false → true เพื่อใช้ UAT Sandbox (ไม่กระทบข้อมูล Production)
+const UAT_MODE = false;
+
+// ─── PEAK Credentials ────────────────────────────────────────────────
+const _PROD = {
+  CONNECT_ID:       'mptechcorporation_peakapi',
+  CONNECT_PASSWORD: 'vpKCLvJuu5ABeyWaBwZo',
+  USER_TOKEN:       '83286c2d-c59b-4071-81a2-b3f6c16b0a95',
+  BASE_URL:         'https://api.peakaccount.com/api/v1',
+  APPLICATION_CODE: 'M32GCAAA20',
+};
+const _UAT = {
+  CONNECT_ID:       'mptechcorporation_peakapi_uat',
+  CONNECT_PASSWORD: 'sJY3C7rB3QrrBpG4nXcR',
+  USER_TOKEN:       'ccd8bef1-ce62-4432-9380-426bee768c34',
+  BASE_URL:         'https://api.uat.peaksandbox.com/api/v1', // ⚠️ ยืนยัน URL กับ PEAK ถ้า 401/404
+  APPLICATION_CODE: 'M3DHAAAA20',
+};
+const _ENV = UAT_MODE ? _UAT : _PROD;
+
 const CONFIG = {
-  CONNECT_ID: 'mptechcorporation_peakapi',                  // ConnectId (Production)
-  CONNECT_PASSWORD: 'vpKCLvJuu5ABeyWaBwZo',                 // ConnectKey (Production)
-  USER_TOKEN: '83286c2d-c59b-4071-81a2-b3f6c16b0a95',       // User Token (Production)
-  BASE_URL: 'https://api.peakaccount.com/api/v1',            // Production
-  APPLICATION_CODE: 'M32GCAAA20',                            // ApplicationCode (Production — สำรองไว้)
+  CONNECT_ID:       _ENV.CONNECT_ID,
+  CONNECT_PASSWORD: _ENV.CONNECT_PASSWORD,
+  USER_TOKEN:       _ENV.USER_TOKEN,
+  BASE_URL:         _ENV.BASE_URL,
+  APPLICATION_CODE: _ENV.APPLICATION_CODE,
 
   // ─── Account Codes (ยืนยันกับ FinFin ก่อน deploy) ─────────────────────
   ACCOUNT_CODE_SALES: '410101',      // ขาย (ยืนยันใน PEAK UAT แล้ว — 410000 ไม่มีในระบบ)
